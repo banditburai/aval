@@ -1,8 +1,11 @@
 import {
+  H265_NAL_SPS,
   canonicalizeH265EncoderUnitStream,
   FormatError,
   inspectH265AnnexBRendition,
+  parseH265Sps,
   prepareH264EncoderRendition,
+  splitH265AnnexBAccessUnit,
   type H264RenditionInspection,
   type H265RenditionInspection,
   type VideoBitDepth,
@@ -26,6 +29,7 @@ import {
   prepareVp9Rendition,
   type IvfEncodedUnitInput
 } from "./ivf-codec-adapters.js";
+import { reconcileH265EncodedGeometry } from "./h265-encoded-geometry.js";
 import type { PreparedEncodingRendition } from "./project-encoding-compiler.js";
 
 type H264Encoding = Extract<NormalizedVideoEncoding, { readonly codec: "h264" }>;
@@ -228,6 +232,23 @@ function prepareH264Rendition(
 function prepareH265Rendition(
   input: Readonly<CodecPrepareInput<H265Encoding, EncodedElementaryUnit>>
 ): Readonly<PreparedEncodingRendition> {
+  try {
+    return prepareValidatedH265Rendition(input);
+  } catch (cause) {
+    if (cause instanceof FormatError) {
+      throw new CompilerError("ASSET_INVALID", cause.message, {
+        cause,
+        rendition: input.renditionId,
+        phase: "encode"
+      });
+    }
+    throw cause;
+  }
+}
+
+function prepareValidatedH265Rendition(
+  input: Readonly<CodecPrepareInput<H265Encoding, EncodedElementaryUnit>>
+): Readonly<PreparedEncodingRendition> {
   const canonicalUnits = input.units.map((unit) => Object.freeze({
     id: unit.id,
     accessUnits: canonicalizeH265EncoderUnitStream(
@@ -236,8 +257,13 @@ function prepareH265Rendition(
       `units.${unit.id}`
     )
   }));
+  const geometry = reconcileH265EncodedGeometry(
+    input.geometry,
+    firstH265Sps(canonicalUnits, input.renditionId),
+    input.renditionId
+  );
   const inspection = inspectH265AnnexBRendition({
-    profile: inspectionProfile(input.geometry, input.frameRate),
+    profile: inspectionProfile(geometry, input.frameRate),
     units: canonicalUnits
   });
   const bitrate = measuredBitrate(
@@ -250,7 +276,7 @@ function prepareH265Rendition(
     id: input.renditionId,
     codec: inspection.decoderConfig.codec,
     bitDepth: 8,
-    geometry: input.geometry,
+    geometry,
     bitrate: Object.freeze({ average: bitrate, peak: bitrate }),
     units: Object.freeze(canonicalUnits.map((unit, unitIndex) => {
       const inspected = requiredH265Unit(inspection, unitIndex, unit.id);
@@ -276,6 +302,40 @@ function prepareH265Rendition(
       });
     }))
   });
+}
+
+function firstH265Sps(
+  units: readonly Readonly<{
+    readonly id: string;
+    readonly accessUnits: readonly Readonly<{
+      readonly bytes: Uint8Array;
+      readonly key: boolean;
+    }>[];
+  }>[],
+  renditionId: string
+) {
+  const firstUnit = units[0];
+  const firstAccessUnit = firstUnit?.accessUnits[0];
+  if (firstUnit === undefined || firstAccessUnit === undefined) {
+    throw new CompilerError(
+      "ASSET_INVALID",
+      "H.265 encoder emitted no access unit",
+      { phase: "encode", rendition: renditionId }
+    );
+  }
+  const path = `units.${firstUnit.id}.accessUnits[0]`;
+  const sps = splitH265AnnexBAccessUnit(
+    firstAccessUnit.bytes,
+    path
+  ).find(({ type }) => type === H265_NAL_SPS);
+  if (sps === undefined) {
+    throw new CompilerError(
+      "ASSET_INVALID",
+      "H.265 encoder emitted no SPS",
+      { phase: "encode", rendition: renditionId, unit: firstUnit.id }
+    );
+  }
+  return parseH265Sps(sps, `${path}.sps`);
 }
 
 function prepareVp9EncodingRendition(

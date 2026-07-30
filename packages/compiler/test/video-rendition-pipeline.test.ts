@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { parseFrontIndex } from "@pixel-point/aval-format";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { validateAssetFile } from "../src/commands/asset.js";
 import { compileProjectEncoding } from "../src/compile/project-encoding-compiler.js";
 import { compileVideoEncodingRenditions } from "../src/compile/video-rendition-pipeline.js";
 import type { PreparedProjectSource } from "../src/compile/project-source.js";
@@ -16,7 +17,8 @@ import type {
 } from "../src/model.js";
 
 const WIDTH = 64;
-const HEIGHT = 28;
+const HEIGHT = 30;
+const PACKED_HEIGHT = HEIGHT * 2 + 8;
 const FRAMES = 6;
 const CODEC_CASES = Object.freeze([
   {
@@ -89,6 +91,17 @@ describe("codec-typed rendition pipeline", () => {
         timeoutMs: 30_000
       });
 
+      if (codec === "h265") {
+        expect(compiled.invocations[1]?.arguments).toEqual(expect.arrayContaining([
+          "-video_size", `${String(WIDTH)}x${String(PACKED_HEIGHT)}`
+        ]));
+        expect(compiled.renditions[0]?.geometry.codedHeight)
+          .toBeGreaterThan(PACKED_HEIGHT);
+      } else if (codec === "h264") {
+        expect(compiled.renditions[0]?.geometry.codedHeight).toBe(80);
+      } else {
+        expect(compiled.renditions[0]?.geometry.codedHeight).toBe(PACKED_HEIGHT);
+      }
       expect(compiled.invocations.map(({ operation }) => operation)).toEqual([
         `${codec}:video.main:idle.body:scale-rgba`,
         `${codec}:video.main:idle.body:encode`,
@@ -110,7 +123,8 @@ describe("codec-typed rendition pipeline", () => {
         geometry: {
           layout: "packed-alpha",
           codedWidth: WIDTH,
-          visibleAlphaRect: [0, 36, WIDTH, HEIGHT]
+          visibleAlphaRect: [0, 38, WIDTH, HEIGHT],
+          decodedStorageRect: [0, 0, WIDTH, PACKED_HEIGHT]
         },
         outputQualification: {
           kind: "packed-alpha-v1",
@@ -149,10 +163,22 @@ describe("codec-typed rendition pipeline", () => {
         bitstream,
         layout: "packed-alpha"
       });
+      expect(front.manifest.renditions[0]).toMatchObject({
+        codedHeight: compiled.renditions[0]?.geometry.codedHeight,
+        alphaLayout: {
+          colorRect: [0, 0, WIDTH, HEIGHT],
+          alphaRect: [0, 38, WIDTH, HEIGHT]
+        }
+      });
+      expect(front.manifest.limits.decodedPixelBytes)
+        .toBe(compiled.renditions[0]?.geometry.codedRgbaBytes);
       expect(front.records.reduce(
         (total, chunk) => total + chunk.displayedFrameCount,
         0
       )).toBe(FRAMES);
+      const assetPath = join(directory, `${codec}.avl`);
+      await writeFile(assetPath, artifact.assetBytes);
+      await expect(validateAssetFile(assetPath)).resolves.toBeDefined();
     },
     40_000
   );
@@ -189,6 +215,67 @@ describe("codec-typed rendition pipeline", () => {
         layout: "opaque"
       });
       expect(front.manifest.renditions[0]?.outputQualification).toBeUndefined();
+    },
+    40_000
+  );
+
+  it.skipIf(!hasEncoder("libx265"))(
+    "accepts opaque x265 padding without changing decoded storage",
+    async () => {
+      const project = projectFixture(encodingFixture("h265"), "opaque");
+      const source = preparedSource();
+      const encoding = project.encodings[0]!;
+      const compiled = await compileVideoEncodingRenditions({
+        project,
+        encoding,
+        layout: "opaque",
+        sources: new Map([[source.id, source]]),
+        executable: "ffmpeg",
+        timeoutMs: 30_000
+      });
+
+      expect(compiled.invocations.map(({ operation }) => operation)).toEqual([
+        "h265:video.main:idle.body:scale-rgba",
+        "h265:video.main:idle.body:encode"
+      ]);
+      expect(compiled.invocations[1]?.arguments).toEqual(expect.arrayContaining([
+        "-video_size", `${String(WIDTH)}x${String(HEIGHT)}`
+      ]));
+      expect(compiled.renditions[0]).toMatchObject({
+        geometry: {
+          codedWidth: WIDTH,
+          decodedStorageRect: [0, 0, WIDTH, HEIGHT],
+          visibleColorRect: [0, 0, WIDTH, HEIGHT]
+        }
+      });
+      expect(compiled.renditions[0]?.geometry.codedHeight)
+        .toBeGreaterThan(HEIGHT);
+      expect(compiled.renditions[0]?.outputQualification).toBeUndefined();
+
+      const artifact = compileProjectEncoding({
+        project,
+        encoding,
+        layout: "opaque",
+        renditions: compiled.renditions
+      });
+      const front = parseFrontIndex(artifact.assetBytes);
+      expect(front.manifest).toMatchObject({
+        formatVersion: "1.1",
+        layout: "opaque",
+        renditions: [{
+          codedWidth: WIDTH,
+          codedHeight: compiled.renditions[0]?.geometry.codedHeight,
+          alphaLayout: {
+            type: "opaque",
+            colorRect: [0, 0, WIDTH, HEIGHT]
+          }
+        }]
+      });
+      expect(front.manifest.limits.decodedPixelBytes)
+        .toBe(compiled.renditions[0]?.geometry.codedRgbaBytes);
+      const assetPath = join(directory, "h265-opaque.avl");
+      await writeFile(assetPath, artifact.assetBytes);
+      await expect(validateAssetFile(assetPath)).resolves.toBeDefined();
     },
     40_000
   );
@@ -256,7 +343,7 @@ function encodingFixture(codec: VideoCodec): NormalizedVideoEncoding {
     case "h264":
       return Object.freeze({ codec, preset: "ultrafast", renditions });
     case "h265":
-      return Object.freeze({ codec, preset: "ultrafast", threads: 2, renditions });
+      return Object.freeze({ codec, preset: "veryslow", threads: 2, renditions });
     case "vp9":
       return Object.freeze({
         codec,
