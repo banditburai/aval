@@ -93,6 +93,8 @@ Add one compiler-internal H.265 geometry reconciler with a narrow contract:
 - input: pre-encode `VideoRenditionGeometry` and parsed SPS coded/crop facts;
 - require positive, even coded dimensions;
 - require coded dimensions to contain the decoded storage rectangle;
+- derive the maximum admissible padding from the SPS `log2CtbSize` and require
+  right and bottom padding to be less than one coding-tree block;
 - require crop origin `(0, 0)`;
 - require crop-visible width and height to equal the decoded storage width and
   height exactly;
@@ -106,6 +108,11 @@ H.265 preparation extracts the first canonical SPS only to establish the
 candidate coded geometry. The existing full rendition inspector remains
 authoritative for parameter-set stability, codec profile, crop, timing, color,
 reference closure, and every encoded unit.
+
+Every `FormatError` raised while canonicalizing, splitting, parsing, or fully
+inspecting H.265 output is normalized at the compiler boundary to a stable
+`CompilerError` with code `ASSET_INVALID`, the affected rendition, and encode
+phase. Invalid encoder output must not surface as an unexpected `IO_FAILED`.
 
 ### Manifest and runtime
 
@@ -123,6 +130,7 @@ Compilation must fail before asset publication when:
 
 - the first canonical H.265 access unit has no SPS;
 - SPS coded dimensions are odd, invalid, or smaller than decoded storage;
+- right or bottom padding is at least one SPS-declared coding-tree block;
 - conformance cropping begins away from the coded origin;
 - the crop-visible dimensions differ from the intended decoded storage;
 - the full existing H.265 inspection finds different parameter sets or crop
@@ -138,20 +146,26 @@ Add focused unit coverage for the reconciler:
 
 - accept coded dimensions larger than storage when the crop exposes storage
   exactly;
+- accept no padding, right-only padding, padding on both axes, and opaque
+  geometry;
 - keep color, alpha, decoded-storage, and decoded-byte facts unchanged;
 - recompute coded bytes from the SPS dimensions;
 - reject crop-visible mismatch, non-origin crop, undersized coded surfaces,
-  and invalid dimensions.
+  invalid dimensions, and padding at least one coding-tree block;
+- normalize malformed H.265 parser output to the stable compiler diagnostic.
 
 Strengthen the real codec pipeline integration fixture so packed storage is
 not aligned to x265's `veryslow` coding grid. It must prove:
 
 - the raw H.265 input uses the exact packed storage extent;
 - H.265 preparation succeeds with a larger emitted coded height;
+- an opaque H.265 rendition likewise retains its exact decoded storage while
+  accepting encoder padding;
 - the prepared and serialized manifests retain the smaller decoded storage
   and exact color/alpha rectangles;
 - VP9 retains its exact codec-neutral coded surface;
-- asset validation and packed-alpha output qualification still pass.
+- public asset validation and packed-alpha output qualification still pass;
+- runtime-limit decoded bytes use the reconciled coded surface.
 
 Existing H.264 padding/crop, VP9, AV1, normalized manifest, decoder padding,
 and runtime rendering tests must remain unchanged and pass.
