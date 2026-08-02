@@ -173,6 +173,9 @@ export type H264EncoderPreset = typeof H264_ENCODER_PRESETS[number];
 export type H265EncoderPreset = typeof H265_ENCODER_PRESETS[number];
 export type Vp9Deadline = typeof VP9_DEADLINES[number];
 
+export const DEFAULT_H265_ENCODER_PRESET: H265EncoderPreset = "veryslow";
+export const DEFAULT_VP9_DEADLINE: Vp9Deadline = "best";
+
 export type SourceAlphaPolicy = "auto" | "opaque" | "packed";
 export type VideoCodec = FormatVideoCodec;
 export type SourceRenditionDimension = number | "auto";
@@ -237,13 +240,29 @@ export type VideoEncoding<R extends SourceRenditionTarget = SourceRenditionTarge
   | Vp9Encoding<R>
   | Av1Encoding<R>;
 
+export type SourceH265Encoding =
+  Omit<H265Encoding, "preset"> & {
+    readonly preset?: H265EncoderPreset;
+  };
+
+export type SourceVp9Encoding =
+  Omit<Vp9Encoding, "deadline"> & {
+    readonly deadline?: Vp9Deadline;
+  };
+
+export type SourceVideoEncoding =
+  | H264Encoding
+  | SourceH265Encoding
+  | SourceVp9Encoding
+  | Av1Encoding;
+
 export interface SourceProject {
   readonly projectVersion: "1.0";
   readonly alpha: SourceAlphaPolicy;
   readonly canvas: Canvas;
   readonly frameRate: Rational;
   readonly sources: readonly SourceDescriptor[];
-  readonly encodings: readonly VideoEncoding[];
+  readonly encodings: readonly SourceVideoEncoding[];
   readonly units: readonly SourceUnit[];
   readonly initialState: string;
   readonly states: readonly SourceState[];

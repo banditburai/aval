@@ -34,7 +34,10 @@ import {
   type NormalizedSourceProject,
   type ProjectCompileOptions,
   type SourceAlphaPolicy,
+  type SourceH265Encoding,
   type SourceProject,
+  type SourceVideoEncoding,
+  type SourceVp9Encoding,
   type UnpackReport,
   type VideoEncoding,
   type VideoRenditionInspection,
@@ -88,6 +91,26 @@ const encodings: readonly VideoEncoding[] = [
   h265Encoding,
   encoding
 ];
+const authoredH265Encoding: SourceH265Encoding = {
+  codec: "h265",
+  threads: 8,
+  renditions: [{ id: "video.1x", width: 1_920, height: "auto", crf: 32 }]
+};
+const authoredVp9Encoding: SourceVp9Encoding = {
+  codec: "vp9",
+  cpuUsed: 0,
+  threads: 8,
+  renditions: [{ id: "video.1x", width: 1_920, height: "auto", crf: 40 }]
+};
+const authoredEncodings: readonly SourceVideoEncoding[] = [
+  authoredH265Encoding,
+  authoredVp9Encoding
+];
+const authoredProjectEncodings: SourceProject["encodings"] = authoredEncodings;
+// @ts-expect-error normalized H.265 policies must record an explicit preset
+const incompleteH265Encoding: H265Encoding = authoredH265Encoding;
+// @ts-expect-error normalized VP9 policies must record an explicit deadline
+const incompleteVp9Encoding: Vp9Encoding = authoredVp9Encoding;
 const directCrfOptions: DirectCompileOptions = {
   inputPath: "input.mov",
   outputPath: "output",
@@ -140,6 +163,10 @@ void H265_ENCODER_PRESETS;
 void VP9_DEADLINES;
 void encoding;
 void encodings;
+void authoredEncodings;
+void authoredProjectEncodings;
+void incompleteH265Encoding;
+void incompleteVp9Encoding;
 void directCrfOptions;
 void projectTimeoutOptions;
 void parsed;

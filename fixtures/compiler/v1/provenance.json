@@ -8,13 +8,13 @@
   },
   "project": {
     "path": "fixtures/compiler/v1/source/motion.json",
-    "bytes": 2214,
-    "sha256": "ea216a51b643f66b2ccf676451766a78e8a6f5863641b7d02300026a0fbd4528"
+    "bytes": 2218,
+    "sha256": "4dc74d58d0c8a28020458dda65389dd88eda4224a874aed90aecfecb319386e6"
   },
   "sourceGenerator": "@pixel-point/aval-compiler init 1.0",
   "sourceProvenance": {
     "provenancePath": "fixtures/starter/v1-idle-hover/provenance.json",
-    "provenanceSha256": "89c11d7edbf70f27cc557fdf955f757accedf70d81225ac73fc20d15820303fa"
+    "provenanceSha256": "35fa0a2e1f55fef63f01a56bf549a2befe876af0ee9d65da77bf62f1526f1f77"
   },
   "frames": [
     {

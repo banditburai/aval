@@ -252,8 +252,8 @@ export const HELP_TEXT = `Usage:
 
 Direct encoding options:
   --crf <integer>                constant quality (H.264 1..51; H.265 0..51; VP9/AV1 0..63)
-  --preset <name>                H.264/H.265 preset, ultrafast through placebo
-  --deadline <mode>              VP9 best, good, or realtime deadline
+  --preset <name>                H.264/H.265, ultrafast through placebo (defaults: H.264 medium; H.265 veryslow)
+  --deadline <mode>              VP9 best, good, or realtime deadline (default: best)
   --cpu-used <integer>           VP9 -8..8 or AV1 0..8 speed/quality control
   --bit-depth <8|10>             AV1 output bit depth
   --tiles <columns>x<rows>       AV1 power-of-two tile layout, product at most 64

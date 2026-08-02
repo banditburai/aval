@@ -1,0 +1,91 @@
+{
+  "projectVersion": "1.0",
+  "alpha": "packed",
+  "canvas": {
+    "width": 3840,
+    "height": 670,
+    "fit": "contain",
+    "pixelAspect": [1, 1],
+    "colorSpace": "srgb"
+  },
+  "frameRate": { "numerator": 24, "denominator": 1 },
+  "sources": [
+    {
+      "id": "lend-borrow",
+      "type": "video",
+      "path": "source/lend-borrow-test.mov",
+      "timing": { "mode": "exact" }
+    }
+  ],
+  "encodings": [
+    {
+      "codec": "vp9",
+      "cpuUsed": 4,
+      "threads": 8,
+      "renditions": [
+        { "id": "video.1x", "width": 3840, "height": 670, "crf": 40 }
+      ]
+    },
+    {
+      "codec": "h265",
+      "threads": 8,
+      "renditions": [
+        { "id": "video.1x", "width": 3840, "height": 670, "crf": 30 }
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "idle.body",
+      "kind": "body",
+      "source": "lend-borrow",
+      "range": [0, 36],
+      "playback": "loop",
+      "ports": [
+        { "id": "default", "entryFrame": 0, "portalFrames": [35] }
+      ]
+    },
+    {
+      "id": "active.body",
+      "kind": "body",
+      "source": "lend-borrow",
+      "range": [36, 69],
+      "playback": "finite",
+      "ports": [
+        { "id": "default", "entryFrame": 0, "portalFrames": [32] }
+      ]
+    }
+  ],
+  "initialState": "idle",
+  "states": [
+    { "id": "idle", "bodyUnit": "idle.body" },
+    { "id": "active", "bodyUnit": "active.body" }
+  ],
+  "edges": [
+    {
+      "id": "idle.active",
+      "from": "idle",
+      "to": "active",
+      "start": {
+        "type": "portal",
+        "sourcePort": "default",
+        "targetPort": "default",
+        "maxWaitFrames": 35
+      },
+      "continuity": "exact-authored"
+    },
+    {
+      "id": "active.idle",
+      "from": "active",
+      "to": "idle",
+      "trigger": { "type": "completion" },
+      "start": {
+        "type": "finish",
+        "targetPort": "default",
+        "maxWaitFrames": 35
+      },
+      "continuity": "exact-authored"
+    }
+  ],
+  "bindings": []
+}

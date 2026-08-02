@@ -29,8 +29,8 @@ describe("AVAL 1.0 multi-codec idle-hover starter", () => {
       projectVersion: "1.0",
       encodings: [
         { codec: "av1", bitDepth: 10 },
-        { codec: "vp9", deadline: "good" },
-        { codec: "h265", preset: "slow" },
+        { codec: "vp9", deadline: "best" },
+        { codec: "h265", preset: "veryslow" },
         { codec: "h264", preset: "slow" }
       ],
       initialState: "idle",

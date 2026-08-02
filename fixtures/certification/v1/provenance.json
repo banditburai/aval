@@ -6,17 +6,17 @@
   "rebuild": "node fixtures/certification/v1/update-fixture.mjs",
   "source": {
     "path": "fixtures/compiler/v1/source/motion.json",
-    "bytes": 2214,
-    "sha256": "ea216a51b643f66b2ccf676451766a78e8a6f5863641b7d02300026a0fbd4528"
+    "bytes": 2218,
+    "sha256": "4dc74d58d0c8a28020458dda65389dd88eda4224a874aed90aecfecb319386e6"
   },
   "sourceProvenance": {
     "provenancePath": "fixtures/compiler/v1/provenance.json",
-    "provenanceSha256": "73a9c3dfdf8243e75b1bc8dd7753aadd03e901d23086101d3ac0ae4fe0e01047"
+    "provenanceSha256": "8ea4b5f0a4820628966be469f5d45495dd5059603f772ea7bd3262f9f848831e"
   },
   "buildReport": {
     "path": "fixtures/certification/v1/build.json",
-    "bytes": 25961,
-    "sha256": "5552009dc34124106c02468978b7df479f6c969d679ea20fb29977de23bac144"
+    "bytes": 25977,
+    "sha256": "31c85c0f1349978dca0dffd912e57e8fbecee67162e56d4f1c9d0e0d1d0415d9"
   },
   "outputs": [
     {
@@ -26,13 +26,13 @@
     },
     {
       "path": "fixtures/certification/v1/vp9.avl",
-      "bytes": 14144,
-      "sha256": "d97cfc8c7014ec46cf635cbcdb11d69cfd520dbd3cd136a920e23ac76d74c478"
+      "bytes": 12059,
+      "sha256": "4654be852b7de37756c3c4ef1401ed3b5898ee051385fb19a7a777ad7cd2b0f8"
     },
     {
       "path": "fixtures/certification/v1/h265.avl",
-      "bytes": 12479,
-      "sha256": "4f97fe5ba8fe71ded4dc0839eb9820f2d75a92c58d9e44d3a42f58af0ba05c8c"
+      "bytes": 11814,
+      "sha256": "e0b30bc2f4077867bf3342daea8af02b06b8ce74cc34d626ddaec2897497874d"
     },
     {
       "path": "fixtures/certification/v1/h264.avl",

@@ -15,6 +15,8 @@ import type {
   Vp9Encoding
 } from "../model.js";
 import {
+  DEFAULT_H265_ENCODER_PRESET,
+  DEFAULT_VP9_DEADLINE,
   H264_ENCODER_PRESETS,
   H265_ENCODER_PRESETS,
   VP9_DEADLINES
@@ -35,19 +37,20 @@ export function cloneVideoEncodings(
   value: unknown,
   canvas: Readonly<Canvas>
 ): readonly NormalizedVideoEncoding[] {
-  return cloneEncodingSet(value, canvas);
+  return cloneEncodingSet(value, canvas, true);
 }
 
 /** Validate and detach an already dimension-normalized encoding set. */
 export function cloneNormalizedVideoEncodings(
   value: unknown
 ): readonly NormalizedVideoEncoding[] {
-  return cloneEncodingSet(value, undefined);
+  return cloneEncodingSet(value, undefined, false);
 }
 
 function cloneEncodingSet(
   value: unknown,
-  canvas: Readonly<Canvas> | undefined
+  canvas: Readonly<Canvas> | undefined,
+  authored: boolean
 ): readonly NormalizedVideoEncoding[] {
   const inputs = boundedArray(value, "encodings", 1, VIDEO_CODECS.length);
   const seen = new Set<VideoCodec>();
@@ -61,9 +64,9 @@ function cloneEncodingSet(
       case "h264":
         return cloneH264Encoding(input, path, canvas);
       case "h265":
-        return cloneH265Encoding(input, path, canvas);
+        return cloneH265Encoding(input, path, canvas, authored);
       case "vp9":
-        return cloneVp9Encoding(input, path, canvas);
+        return cloneVp9Encoding(input, path, canvas, authored);
       case "av1":
         return cloneAv1Encoding(input, path, canvas);
     }
@@ -123,12 +126,22 @@ function cloneH264Encoding(
 function cloneH265Encoding(
   input: Record<string, unknown>,
   path: string,
-  canvas: Readonly<Canvas> | undefined
+  canvas: Readonly<Canvas> | undefined,
+  authored: boolean
 ): H265Encoding<NormalizedSourceRenditionTarget> {
-  exactKeys(input, ["codec", "preset", "threads", "renditions"], path);
+  exactKeys(
+    input,
+    authored
+      ? ["codec", "threads", "renditions"]
+      : ["codec", "preset", "threads", "renditions"],
+    path,
+    authored ? ["preset"] : []
+  );
   return Object.freeze({
     codec: literal(input.codec, "h265", `${path}.codec`),
-    preset: oneOf(input.preset, H265_ENCODER_PRESETS, `${path}.preset`),
+    preset: input.preset === undefined && authored
+      ? DEFAULT_H265_ENCODER_PRESET
+      : oneOf(input.preset, H265_ENCODER_PRESETS, `${path}.preset`),
     threads: integer(input.threads, `${path}.threads`, 1, 64),
     renditions: cloneRenditions(input.renditions, path, canvas, 51)
   });
@@ -137,16 +150,22 @@ function cloneH265Encoding(
 function cloneVp9Encoding(
   input: Record<string, unknown>,
   path: string,
-  canvas: Readonly<Canvas> | undefined
+  canvas: Readonly<Canvas> | undefined,
+  authored: boolean
 ): Vp9Encoding<NormalizedSourceRenditionTarget> {
   exactKeys(
     input,
-    ["codec", "deadline", "cpuUsed", "threads", "renditions"],
-    path
+    authored
+      ? ["codec", "cpuUsed", "threads", "renditions"]
+      : ["codec", "deadline", "cpuUsed", "threads", "renditions"],
+    path,
+    authored ? ["deadline"] : []
   );
   return Object.freeze({
     codec: literal(input.codec, "vp9", `${path}.codec`),
-    deadline: oneOf(input.deadline, VP9_DEADLINES, `${path}.deadline`),
+    deadline: input.deadline === undefined && authored
+      ? DEFAULT_VP9_DEADLINE
+      : oneOf(input.deadline, VP9_DEADLINES, `${path}.deadline`),
     cpuUsed: integer(input.cpuUsed, `${path}.cpuUsed`, -8, 8),
     threads: integer(input.threads, `${path}.threads`, 1, 64),
     renditions: cloneRenditions(input.renditions, path, canvas, 63)

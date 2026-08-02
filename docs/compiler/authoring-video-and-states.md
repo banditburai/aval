@@ -161,6 +161,12 @@ shorten, sample, or invent a smaller rendition. Exactly one
 rendition dimension may be `"auto"`; its even value is derived from the canvas
 aspect ratio.
 
+Packed-alpha storage is taller than the visible rendition because it contains
+separate color and alpha panes. A codec may publish a coded surface larger than
+that decoded storage when its bitstream carries an exact conformance crop.
+Encoder-owned padding changes neither the authored visible resolution nor the
+decoded color and alpha rectangles.
+
 ## Compression
 
 Lower CRF generally retains more detail and produces larger output. H.264 and
@@ -169,10 +175,18 @@ H.265 CRF numbers are not directly comparable to VP9 or AV1. Slow modes such as
 a default encode timeout. Packed-alpha output is decoded and composited during
 compiler validation.
 
+Authored project JSON may omit the H.265 `preset` and VP9 `deadline`.
+Validation materializes `preset: "veryslow"` for H.265 and
+`deadline: "best"` for VP9; any explicit allowlisted value still wins. The
+normalized project and `build.json` continue to record the resolved policy
+explicitly. These slow defaults can substantially increase compilation time.
+
 The compiler accepts only structured fields. It owns scaling and pixel formats;
 authors do not pass `-vf`. It always removes audio. It adds `-b:v 0` for VP9 and
 AV1 constant-quality output. MP4/WebM options such as `hvc1`/`av01` tags,
 `faststart`, and `strict experimental` do not apply to elementary AVAL chunks.
+Accordingly, AVAL encode invocations do not add container-only flags such as
+`-tag:v hvc1` or `-movflags +faststart`.
 
 ## Direct input
 
@@ -184,7 +198,8 @@ avl compile input.mov --loop 0:120 --codec av1 \
   --row-mt --threads 32 --out dist/motion
 ```
 
-Use `--preset` for H.264/H.265 and `--deadline` for VP9. Add
+For direct input, omitting `--preset` selects `medium` for H.264 and `veryslow`
+for H.265; omitting `--deadline` selects `best` for VP9. Add
 `--media-timeout-ms` only when an explicit positive wall limit is desired.
 
 ## Compile, inspect, validate, and develop

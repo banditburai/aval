@@ -89,6 +89,19 @@ describe("source project 1.0 schema", () => {
     expect(Object.isFrozen(parsed.encodings[0]?.renditions)).toBe(true);
   });
 
+  it("materializes omitted H.265 and VP9 encoder controls", () => {
+    const value = project();
+    delete value.encodings[1].deadline;
+    delete value.encodings[2].preset;
+
+    expect(validateSourceProject(value).encodings).toMatchObject([
+      { codec: "av1" },
+      { codec: "vp9", deadline: "best" },
+      { codec: "h265", preset: "veryslow" },
+      { codec: "h264" }
+    ]);
+  });
+
   it.each(["auto", "opaque", "packed"] as const)(
     "accepts alpha policy %s",
     (alpha) => {

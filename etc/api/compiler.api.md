@@ -634,7 +634,7 @@ export interface H265Encoding<R extends SourceRenditionTarget = SourceRenditionT
 }
 
 // @public (undocumented)
-export const HELP_TEXT = "Usage:\n  avl compile <project.json> --out <bundle-directory>\n  avl compile <input.mov|input.mp4|input.m4v> --codec <h264|h265|vp9|av1> --loop <start:end> [codec options] [--alpha auto|opaque|packed] --out <bundle-directory>\n  avl compile <prefix%0Nd.png> --codec <h264|h265|vp9|av1> --frames <first:count> --fps <n/d> --loop <start:end> [codec options] [--canvas <wxh>] [--alpha auto|opaque|packed] --out <bundle-directory>\n  avl inspect <asset.avl> [--json]\n  avl validate <asset.avl> [--json]\n  avl unpack <asset.avl> --out <empty-directory> [--json]\n  avl init <directory> [--json]\n  avl dev <project.json> --out <bundle-directory> [--media-timeout-ms <integer>] [--port <0-65535>] [--open] [--force] [--json]\n\nDirect encoding options:\n  --crf <integer>                constant quality (H.264 1..51; H.265 0..51; VP9/AV1 0..63)\n  --preset <name>                H.264/H.265 preset, ultrafast through placebo\n  --deadline <mode>              VP9 best, good, or realtime deadline\n  --cpu-used <integer>           VP9 -8..8 or AV1 0..8 speed/quality control\n  --bit-depth <8|10>             AV1 output bit depth\n  --tiles <columns>x<rows>       AV1 power-of-two tile layout, product at most 64\n  --row-mt                       enable AV1 row multithreading\n  --threads <1..64>              H.265, VP9, or AV1 encoder threads\n\nOperational options:\n  --media-timeout-ms <integer>   per FFmpeg operation for slow/large encodes\n\nProject files own their ordered codec-major rendition and compression policy.\nMuxer tags, faststart, arbitrary filters, audio, and raw FFmpeg arguments are unavailable.\n\nCommon compile options: --ffmpeg <absolute-path> --ffprobe <absolute-path> --force --json";
+export const HELP_TEXT = "Usage:\n  avl compile <project.json> --out <bundle-directory>\n  avl compile <input.mov|input.mp4|input.m4v> --codec <h264|h265|vp9|av1> --loop <start:end> [codec options] [--alpha auto|opaque|packed] --out <bundle-directory>\n  avl compile <prefix%0Nd.png> --codec <h264|h265|vp9|av1> --frames <first:count> --fps <n/d> --loop <start:end> [codec options] [--canvas <wxh>] [--alpha auto|opaque|packed] --out <bundle-directory>\n  avl inspect <asset.avl> [--json]\n  avl validate <asset.avl> [--json]\n  avl unpack <asset.avl> --out <empty-directory> [--json]\n  avl init <directory> [--json]\n  avl dev <project.json> --out <bundle-directory> [--media-timeout-ms <integer>] [--port <0-65535>] [--open] [--force] [--json]\n\nDirect encoding options:\n  --crf <integer>                constant quality (H.264 1..51; H.265 0..51; VP9/AV1 0..63)\n  --preset <name>                H.264/H.265, ultrafast through placebo (defaults: H.264 medium; H.265 veryslow)\n  --deadline <mode>              VP9 best, good, or realtime deadline (default: best)\n  --cpu-used <integer>           VP9 -8..8 or AV1 0..8 speed/quality control\n  --bit-depth <8|10>             AV1 output bit depth\n  --tiles <columns>x<rows>       AV1 power-of-two tile layout, product at most 64\n  --row-mt                       enable AV1 row multithreading\n  --threads <1..64>              H.265, VP9, or AV1 encoder threads\n\nOperational options:\n  --media-timeout-ms <integer>   per FFmpeg operation for slow/large encodes\n\nProject files own their ordered codec-major rendition and compression policy.\nMuxer tags, faststart, arbitrary filters, audio, and raw FFmpeg arguments are unavailable.\n\nCommon compile options: --ffmpeg <absolute-path> --ffprobe <absolute-path> --force --json";
 
 // @public (undocumented)
 export interface HelpCliArguments {
@@ -872,6 +872,11 @@ export type SourceEdge = {
 };
 
 // @public (undocumented)
+export type SourceH265Encoding = Omit<H265Encoding, "preset"> & {
+    readonly preset?: H265EncoderPreset;
+};
+
+// @public (undocumented)
 export interface SourcePort {
     // (undocumented)
     readonly entryFrame: 0;
@@ -892,7 +897,7 @@ export interface SourceProject {
     // (undocumented)
     readonly edges: readonly SourceEdge[];
     // (undocumented)
-    readonly encodings: readonly VideoEncoding[];
+    readonly encodings: readonly SourceVideoEncoding[];
     // (undocumented)
     readonly frameRate: Rational;
     // (undocumented)
@@ -1003,6 +1008,14 @@ export type SourceUnit = (SourceUnitBase & {
         ];
     };
 });
+
+// @public (undocumented)
+export type SourceVideoEncoding = H264Encoding | SourceH265Encoding | SourceVp9Encoding | Av1Encoding;
+
+// @public (undocumented)
+export type SourceVp9Encoding = Omit<Vp9Encoding, "deadline"> & {
+    readonly deadline?: Vp9Deadline;
+};
 
 // @public
 export function startDevCommand(arguments_: DevCliArguments, options: {

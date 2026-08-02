@@ -177,14 +177,14 @@ function starterProject(): Record<string, unknown> {
       },
       {
         codec: "vp9",
-        deadline: "good",
+        deadline: "best",
         cpuUsed: 4,
         threads: 2,
         renditions: [{ id: "motion.1x", width: 48, height: 48, crf: 1 }]
       },
       {
         codec: "h265",
-        preset: "slow",
+        preset: "veryslow",
         threads: 2,
         renditions: [{ id: "motion.1x", width: 48, height: 48, crf: 1 }]
       },

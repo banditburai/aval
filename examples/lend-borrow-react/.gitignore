@@ -1,0 +1,4 @@
+dist/
+source/*.mov
+*.avl
+*.mp4

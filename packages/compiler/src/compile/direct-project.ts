@@ -23,6 +23,10 @@ import type {
   SourceProject,
   ToolProvenance
 } from "../model.js";
+import {
+  DEFAULT_H265_ENCODER_PRESET,
+  DEFAULT_VP9_DEADLINE
+} from "../model.js";
 import { validateSourceProject } from "../source-project-schema.js";
 import { resolveDirectCanvas } from "./direct-canvas.js";
 import { buildDirectFramePlan } from "./frame-plan.js";
@@ -293,7 +297,7 @@ function directProject(input: {
     }),
     frameRate: Object.freeze({ ...input.frameRate }),
     sources: Object.freeze([input.source]),
-    encodings: Object.freeze([directEncoding(input.options, input.canvas)]),
+    encodings: Object.freeze([lowerDirectEncoding(input.options, input.canvas)]),
     units,
     initialState: "default",
     states: Object.freeze([Object.freeze({
@@ -306,7 +310,7 @@ function directProject(input: {
   });
 }
 
-function directEncoding(
+export function lowerDirectEncoding(
   options: DirectArtifactOptions,
   canvas: Readonly<{ readonly width: number; readonly height: number }>
 ): NormalizedVideoEncoding {
@@ -326,14 +330,14 @@ function directEncoding(
     case "h265":
       return Object.freeze({
         codec: options.codec,
-        preset: options.preset ?? "medium",
+        preset: options.preset ?? DEFAULT_H265_ENCODER_PRESET,
         threads: options.threads ?? DEFAULT_THREADS,
         renditions: Object.freeze([rendition])
       });
     case "vp9":
       return Object.freeze({
         codec: options.codec,
-        deadline: options.deadline ?? "good",
+        deadline: options.deadline ?? DEFAULT_VP9_DEADLINE,
         cpuUsed: options.cpuUsed ?? 0,
         threads: options.threads ?? DEFAULT_THREADS,
         renditions: Object.freeze([rendition])

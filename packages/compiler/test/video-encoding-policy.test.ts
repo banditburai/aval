@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { CompilerError } from "../src/diagnostics.js";
 import {
   H264_ENCODER_PRESETS,
-  H265_ENCODER_PRESETS
+  H265_ENCODER_PRESETS,
+  VP9_DEADLINES
 } from "../src/model.js";
 import {
   cloneNormalizedVideoEncodings,
@@ -47,6 +48,38 @@ describe("video encoding policy", () => {
     expect(() => cloneNormalizedVideoEncodings([{
       ...normalized[0],
       renditions: [rendition(30)]
+    }])).toThrow(CompilerError);
+  });
+
+  it("defaults authored H.265 and VP9 controls while keeping normalized policies strict", () => {
+    const authored = cloneVideoEncodings([
+      {
+        codec: "h265",
+        threads: 8,
+        renditions: [rendition(30)]
+      },
+      {
+        codec: "vp9",
+        cpuUsed: 0,
+        threads: 8,
+        renditions: [rendition(40)]
+      }
+    ], canvas);
+
+    expect(authored).toMatchObject([
+      { codec: "h265", preset: "veryslow" },
+      { codec: "vp9", deadline: "best" }
+    ]);
+    expect(() => cloneNormalizedVideoEncodings([{
+      codec: "h265",
+      threads: 8,
+      renditions: [{ ...rendition(30), height: 1_080 }]
+    }])).toThrow(CompilerError);
+    expect(() => cloneNormalizedVideoEncodings([{
+      codec: "vp9",
+      cpuUsed: 0,
+      threads: 8,
+      renditions: [{ ...rendition(40), height: 1_080 }]
     }])).toThrow(CompilerError);
   });
 
@@ -98,15 +131,28 @@ describe("video encoding policy", () => {
       ]);
   });
 
-  it("accepts the complete H.264 and H.265 preset allowlists through placebo", () => {
+  it("preserves every explicit preset and deadline allowlist value", () => {
     for (const preset of H264_ENCODER_PRESETS) {
-      expect(cloneVideoEncodings([{ codec: "h264", preset, renditions: [rendition()] }], canvas))
-        .toHaveLength(1);
+      const [encoding] = cloneVideoEncodings([
+        { codec: "h264", preset, renditions: [rendition()] }
+      ], canvas);
+      expect(encoding).toMatchObject({ codec: "h264", preset });
     }
     for (const preset of H265_ENCODER_PRESETS) {
-      expect(cloneVideoEncodings([{
+      const [encoding] = cloneVideoEncodings([{
         codec: "h265", preset, threads: 1, renditions: [rendition()]
-      }], canvas)).toHaveLength(1);
+      }], canvas);
+      expect(encoding).toMatchObject({ codec: "h265", preset });
+    }
+    for (const deadline of VP9_DEADLINES) {
+      const [encoding] = cloneVideoEncodings([{
+        codec: "vp9",
+        deadline,
+        cpuUsed: 0,
+        threads: 1,
+        renditions: [rendition()]
+      }], canvas);
+      expect(encoding).toMatchObject({ codec: "vp9", deadline });
     }
   });
 
