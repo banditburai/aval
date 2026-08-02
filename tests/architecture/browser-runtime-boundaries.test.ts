@@ -210,6 +210,37 @@ describe("browser runtime architecture", () => {
     await expect(checkBrowserRuntimeBoundaries(root)).rejects.toThrow(expected);
   });
 
+  it.each([
+    Object.freeze({
+      sourceFile: "player-session.ts",
+      source: 'import { Asset } from "./asset.js";\nvoid Asset;\n',
+      expected: "player session must use the media port instead of ./asset.js"
+    }),
+    Object.freeze({
+      sourceFile: "player-session.ts",
+      source: 'import type { PlayerInput } from "./player-contract.js";\ntype Input = PlayerInput;\n',
+      expected: "player session must not depend on the full PlayerInput bag"
+    }),
+    Object.freeze({
+      sourceFile: "player-telemetry.ts",
+      source: 'import { Renderer } from "./renderer.js";\nvoid Renderer;\n',
+      expected: "concrete media import ./renderer.js is restricted to player-media owners"
+    }),
+    Object.freeze({
+      sourceFile: "player-media-runtime.ts",
+      source: 'import { PlayerSession } from "./player-session.js";\nvoid PlayerSession;\n',
+      expected: "owner dependency points back to ./player-session.js"
+    })
+  ])(
+    "rejects the player ownership violation in $sourceFile",
+    async ({ sourceFile, source, expected }) => {
+      const root = await architectureFixture();
+      await writePackageSource(root, "element", `src/${sourceFile}`, source);
+
+      await expect(checkBrowserRuntimeBoundaries(root)).rejects.toThrow(expected);
+    }
+  );
+
   it.each(["react", "svelte"] as const)(
     "requires the %s wrapper to depend only on element",
     async (wrapper) => {

@@ -188,6 +188,26 @@ const FORBIDDEN_OWNER_NAMES = new Set([
   "RuntimeContext"
 ]);
 
+const CONCRETE_MEDIA_MODULES = new Set([
+  "./asset.js",
+  "./decoder.js",
+  "./decoder-pool.js",
+  "./renderer.js"
+]);
+
+const REVERSE_PLAYER_DEPENDENCIES = new Set([
+  "./player.js",
+  "./player-selection.js",
+  "./player-session.js"
+]);
+
+const SESSION_RESOURCE_MODULES = new Set([
+  ...CONCRETE_MEDIA_MODULES,
+  "./renderer-contract.js",
+  "./renderer-diagnostics.js",
+  "./player-media-runtime.js"
+]);
+
 const GENERATED_DIRECTORY_NAMES = new Set([
   ".git",
   ".next",
@@ -354,6 +374,7 @@ function collectOwnerBagViolations(path, source, violations) {
   const ast = parseArchitectureSource(path, source);
   const findings = new Set();
   visitAst(ast, (node) => {
+    collectPlayerDependencyFinding(path, node, findings);
     if (ownerDeclarationName(node) !== null) {
       const name = ownerDeclarationName(node);
       if (FORBIDDEN_OWNER_NAMES.has(name)) {
@@ -376,6 +397,53 @@ function collectOwnerBagViolations(path, source, violations) {
   for (const finding of [...findings].sort(compareText)) {
     violations.push(`${path}: ${finding}`);
   }
+}
+
+function collectPlayerDependencyFinding(path, node, findings) {
+  const name = basename(path);
+  if (!name.startsWith("player-") && name !== "player.ts") return;
+  const specifier = moduleSpecifier(node);
+  if (specifier === null) return;
+
+  const isMediaOwner = name.startsWith("player-media-");
+  if (!isMediaOwner && CONCRETE_MEDIA_MODULES.has(specifier)) {
+    findings.add(
+      `concrete media import ${specifier} is restricted to player-media owners`
+    );
+  }
+
+  if (
+    (isMediaOwner || [
+      "player-failures.ts",
+      "player-resource-budget.ts",
+      "player-telemetry.ts"
+    ].includes(name)) &&
+    REVERSE_PLAYER_DEPENDENCIES.has(specifier)
+  ) {
+    findings.add(`owner dependency points back to ${specifier}`);
+  }
+
+  if (name !== "player-session.ts") return;
+  if (SESSION_RESOURCE_MODULES.has(specifier)) {
+    findings.add(
+      `player session must use the media port instead of ${specifier}`
+    );
+  }
+  if (
+    specifier === "./player-contract.js" &&
+    importedNames(node).has("PlayerInput")
+  ) {
+    findings.add("player session must not depend on the full PlayerInput bag");
+  }
+}
+
+function importedNames(node) {
+  if (node.type !== "ImportDeclaration") return new Set();
+  return new Set((node.specifiers ?? []).flatMap((specifier) => {
+    if (specifier.type !== "ImportSpecifier") return [];
+    const imported = exportName(specifier.imported);
+    return imported === null ? [] : [imported];
+  }));
 }
 
 function ownerDeclarationName(node) {
