@@ -20,7 +20,7 @@ import { chromium } from "playwright";
 import { build as viteBuild, preview as vitePreview } from "vite";
 
 import { ELEMENT_RELEASE_WORKER } from "./element-release-contract.mjs";
-import { packInstalledClosure } from "./local-package-archives.mjs";
+import { packReleaseConsumerDependencies, verifyInstalledPeerVersions } from "./local-package-archives.mjs";
 import {
   RELEASE_PACKAGE_SPECS,
   RELEASE_VERSION,
@@ -58,12 +58,10 @@ const temporary = await realpath(await mkdtemp(join(tmpdir(), "aval-packed-dev-"
 const project = join(temporary, "project");
 const npmCache = join(temporary, "npm-cache");
 const peerDirectory = join(temporary, "peers");
-const reactPeerArchives = await packInstalledClosure({
+const { archives: consumerDependencyArchives, peerVersions } = await packReleaseConsumerDependencies({
   root,
-  destination: peerDirectory,
-  packages: ["react", "@types/react"]
+  destination: peerDirectory
 });
-const expectedReactManifest = JSON.parse(await readFile(resolve(root, "node_modules/react/package.json"), "utf8"));
 let child;
 let childExit;
 let childExitState;
@@ -84,13 +82,13 @@ try {
       "--offline",
       "--cache",
       npmCache,
-      ...reactPeerArchives,
+      ...consumerDependencyArchives,
       ...archives
     ],
     project,
     120_000
   );
-  await verifyInstalledGraph(project, RELEASE_VERSION, expectedReactManifest.version);
+  await verifyInstalledGraph(project, RELEASE_VERSION, peerVersions);
 
   const cli = join(
     project,
@@ -345,7 +343,7 @@ async function removeHarnessProvidedViteDependency(projectRoot) {
   await writeFile(manifestPath, `${JSON.stringify({ ...manifest, devDependencies })}\n`);
 }
 
-async function verifyInstalledGraph(projectRoot, version, expectedReactVersion) {
+async function verifyInstalledGraph(projectRoot, version, peerVersions) {
   const scope = join(projectRoot, "node_modules", "@pixel-point");
   const canonicalScope = await realpath(scope);
   const manifests = new Map();
@@ -373,16 +371,15 @@ async function verifyInstalledGraph(projectRoot, version, expectedReactVersion) 
     for (const value of Object.values(dependencies)) {
       assert(value === version, `packed ${specification.name} dependency version is not exact`);
     }
-    const expectedPeers = Object.keys(specification.peerDependencies).length === 0
+    const expectedPeerContract = Object.keys(specification.peerDependencies).length === 0
       ? undefined
       : specification.peerDependencies;
     assert(
-      JSON.stringify(manifest?.peerDependencies) === JSON.stringify(expectedPeers),
+      JSON.stringify(manifest?.peerDependencies) === JSON.stringify(expectedPeerContract),
       `packed ${specification.name} peer dependency contract is not exact`
     );
   }
-  const installedReact = JSON.parse(await readFile(join(projectRoot, "node_modules/react/package.json"), "utf8"));
-  assert(installedReact.version === expectedReactVersion, `packed-dev React peer installed at ${String(installedReact.version)}`);
+  await verifyInstalledPeerVersions(projectRoot, peerVersions);
 }
 
 async function verifyHttpSurface(url, build, forbiddenPaths) {

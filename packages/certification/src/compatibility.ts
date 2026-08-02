@@ -4,7 +4,8 @@ export const PUBLIC_RELEASE_PACKAGES = Object.freeze([
   "@pixel-point/aval-element",
   "@pixel-point/aval-player-web",
   "@pixel-point/aval-compiler",
-  "@pixel-point/aval-react"
+  "@pixel-point/aval-react",
+  "@pixel-point/aval-svelte"
 ] as const);
 
 type PublicReleasePackage = (typeof PUBLIC_RELEASE_PACKAGES)[number];
@@ -28,7 +29,8 @@ export const PUBLIC_RELEASE_PACKAGE_CONTRACTS = Object.freeze({
     dependencies: ["@pixel-point/aval-graph", "@pixel-point/aval-format"],
     exports: {
       ...ROOT_EXPORT,
-      "./auto": { types: "./dist/auto.d.ts", import: "./dist/auto.js" }
+      "./auto": { types: "./dist/auto.d.ts", import: "./dist/auto.js" },
+      "./adapter": { types: "./dist/adapter.d.ts", import: "./dist/adapter.js" }
     },
     sideEffects: ["./dist/auto.js"]
   }),
@@ -40,6 +42,13 @@ export const PUBLIC_RELEASE_PACKAGE_CONTRACTS = Object.freeze({
   "@pixel-point/aval-react": releaseContract({
     dependencies: ["@pixel-point/aval-element"],
     peerDependencies: { react: "^18.3.0 || ^19.0.0" }
+  }),
+  "@pixel-point/aval-svelte": releaseContract({
+    dependencies: ["@pixel-point/aval-element"],
+    peerDependencies: { svelte: "^5.0.0" },
+    exports: {
+      ".": { types: "./dist/index.d.ts", svelte: "./dist/index.js" }
+    }
   })
 } satisfies Readonly<Record<PublicReleasePackage, PublicReleasePackageContract>>);
 

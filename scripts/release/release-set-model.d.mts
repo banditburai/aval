@@ -4,13 +4,15 @@ export type ReleasePackageName =
   | "@pixel-point/aval-player-web"
   | "@pixel-point/aval-element"
   | "@pixel-point/aval-compiler"
-  | "@pixel-point/aval-react";
+  | "@pixel-point/aval-react"
+  | "@pixel-point/aval-svelte";
 
 export type ReleaseBuildSource =
   | Readonly<{ kind: "files"; paths: readonly string[] }>
   | Readonly<{ kind: "globs"; include: readonly string[]; exclude: readonly string[] }>;
 
-export interface ReleaseBuildConfig {
+export interface ReleaseBuildConfigBase {
+  readonly runtimeCondition: "import" | "svelte";
   readonly config: string;
   readonly compilerOptions: Readonly<Record<string, boolean>>;
   readonly source: ReleaseBuildSource;
@@ -18,6 +20,20 @@ export interface ReleaseBuildConfig {
   readonly buildSteps: readonly string[];
   readonly sourceMaps: boolean;
 }
+
+export interface TypeScriptReleaseBuildConfig extends ReleaseBuildConfigBase {
+  readonly kind: "typescript";
+  readonly runtimeCondition: "import";
+}
+
+export interface SveltePackageReleaseBuildConfig extends ReleaseBuildConfigBase {
+  readonly kind: "svelte-package";
+  readonly runtimeCondition: "svelte";
+}
+
+export type ReleaseBuildConfig =
+  | TypeScriptReleaseBuildConfig
+  | SveltePackageReleaseBuildConfig;
 
 export interface ReleaseProductionEntrySelection {
   readonly export: string;
@@ -27,6 +43,7 @@ export interface ReleaseProductionEntrySelection {
 export interface ProductionPublicEntryDefinition {
   readonly package: ReleasePackageName;
   readonly export: string;
+  readonly condition: ReleaseBuildConfig["runtimeCondition"];
   readonly path: string;
   readonly specifier: string;
   readonly directory: string;
@@ -43,7 +60,8 @@ export interface ReleasePackageSpecification {
   readonly bin: Readonly<Record<string, string>>;
   readonly productionEntries: readonly ReleaseProductionEntrySelection[];
   readonly buildConfig: ReleaseBuildConfig;
-  readonly buildInfo: string;
+  readonly apiExtractorConfigs: readonly string[];
+  readonly buildInfo?: string;
 }
 
 export const RELEASE_VERSION: "1.0.0";

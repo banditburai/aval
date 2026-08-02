@@ -109,7 +109,8 @@ async function copyDistribution(source, target, copied, specification, prefix = 
     if (!entry.isFile()) throw new Error(`distribution entry is not a regular file: ${relative}`);
     if (/\.map$|\.tsbuildinfo$|(?:^|\/)[^/]+\.(?:test|compile)\.(?:js|d\.ts)$|test-support/iu.test(relative)) continue;
     const isReviewedAdditionalSource = specification.buildConfig.additionalSources.includes(relative);
-    if (!/\.(?:js|d\.ts)$/u.test(relative) && !isReviewedAdditionalSource) {
+    const isReviewedSvelteSource = specification.buildConfig.kind === "svelte-package" && /\.svelte$/u.test(relative);
+    if (!/\.(?:js|d\.ts)$/u.test(relative) && !isReviewedSvelteSource && !isReviewedAdditionalSource) {
       throw new Error(`unexpected distribution file type: ${relative}`);
     }
     if ((await stat(sourcePath)).size > 8 * 1024 * 1024) throw new Error(`distribution file is unexpectedly large: ${relative}`);

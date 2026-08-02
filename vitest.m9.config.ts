@@ -1,8 +1,14 @@
 import { fileURLToPath } from "node:url";
 
+import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  plugins: [svelte({
+    configFile: fileURLToPath(
+      new URL("./packages/svelte/svelte.config.js", import.meta.url)
+    )
+  })],
   test: {
     include: [
       "packages/**/*.test.ts",
@@ -35,8 +41,14 @@ export default defineConfig({
       "@pixel-point/aval-react": fileURLToPath(
         new URL("./packages/react/src/index.ts", import.meta.url)
       ),
+      "@pixel-point/aval-svelte": fileURLToPath(
+        new URL("./packages/svelte/src/index.ts", import.meta.url)
+      ),
       "@pixel-point/aval-player-web": fileURLToPath(
         new URL("./packages/player-web/src/index.ts", import.meta.url)
+      ),
+      "@pixel-point/aval-element/adapter": fileURLToPath(
+        new URL("./packages/element/src/adapter.ts", import.meta.url)
       ),
       "@pixel-point/aval-element/auto": fileURLToPath(
         new URL("./packages/element/src/auto.ts", import.meta.url)

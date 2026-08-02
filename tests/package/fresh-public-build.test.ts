@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { assertDistributionDerived, installVerifiedDistributions } from "../../scripts/release/fresh-public-build.mjs";
+import { assertDistributionDerived, installVerifiedDistributions, stagedDeclarationPaths } from "../../scripts/release/fresh-public-build.mjs";
 import { ensureCompilerCliExecutable } from "../../scripts/release/compiler-cli-mode.mjs";
 import { ELEMENT_RELEASE_TYPESCRIPT_ROOTS, ELEMENT_RELEASE_WORKER } from "../../scripts/release/element-release-contract.mjs";
 import { RELEASE_PACKAGE_SPECS, releasePackageSpecification } from "../../scripts/release/release-set-model.mjs";
@@ -94,6 +94,67 @@ describe("fresh public distribution provenance", () => {
     }
   });
 
+  it("accepts only the exact Svelte package emission contract", async () => {
+    const root = await mkdtemp(join(tmpdir(), "aval-fresh-svelte-"));
+    try {
+      const source = join(root, "src");
+      const distribution = join(root, "dist");
+      await mkdir(source);
+      await mkdir(distribution);
+      await writeFile(join(source, "AvalComponent.svelte"), "<aval-player></aval-player>\n");
+      await writeFile(join(source, "controller.ts"), "export const controller = true;\n");
+      await writeFile(join(source, "index.ts"), "export {};\n");
+      await writeFile(join(source, "types.ts"), "export interface Types {}\n");
+      for (const path of [
+        "AvalComponent.svelte",
+        "AvalComponent.svelte.d.ts",
+        "controller.d.ts",
+        "controller.js",
+        "index.d.ts",
+        "index.js",
+        "types.d.ts",
+        "types.js"
+      ]) await writeFile(join(distribution, path), "export {};\n");
+      await expect(assertDistributionDerived({
+        source,
+        sourceFiles: ["AvalComponent.svelte", "controller.ts", "index.ts", "types.ts"],
+        distribution,
+        packageName: "@pixel-point/aval-svelte"
+      })).resolves.toMatchObject({
+        outputs: [
+          "AvalComponent.svelte",
+          "AvalComponent.svelte.d.ts",
+          "controller.d.ts",
+          "controller.js",
+          "index.d.ts",
+          "index.js",
+          "types.d.ts",
+          "types.js"
+        ]
+      });
+      await writeFile(join(distribution, "stale.svelte"), "<p>stale</p>\n");
+      await expect(assertDistributionDerived({
+        source,
+        sourceFiles: ["AvalComponent.svelte", "controller.ts", "index.ts", "types.ts"],
+        distribution,
+        packageName: "@pixel-point/aval-svelte"
+      })).rejects.toThrow(/stale\.svelte/u);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("maps staged package roots and reviewed subpaths to staged declarations", () => {
+    const elementDistribution = join("staged", "element");
+    expect(stagedDeclarationPaths(new Map([
+      ["@pixel-point/aval-element", elementDistribution]
+    ]))).toEqual({
+      "@pixel-point/aval-element": [join(elementDistribution, "index.d.ts")],
+      "@pixel-point/aval-element/auto": [join(elementDistribution, "auto.d.ts")],
+      "@pixel-point/aval-element/adapter": [join(elementDistribution, "adapter.d.ts")]
+    });
+  });
+
   it("rejects emitted test output even when a similarly named source exists", async () => {
     const root = await mkdtemp(join(tmpdir(), "aval-fresh-test-"));
     try {
@@ -160,7 +221,7 @@ describe("fresh public distribution provenance", () => {
   });
 
   it("defines the element release from public TypeScript roots plus its URL worker", async () => {
-    expect(ELEMENT_RELEASE_TYPESCRIPT_ROOTS).toEqual(["index.ts", "auto.ts"]);
+    expect(ELEMENT_RELEASE_TYPESCRIPT_ROOTS).toEqual(["index.ts", "auto.ts", "adapter.ts"]);
     expect(ELEMENT_RELEASE_WORKER).toEqual({ source: "decoder-worker.ts", output: "decoder-worker.js" });
     const config = JSON.parse(await readFile("packages/element/tsconfig.release.json", "utf8")) as {
       files?: string[];

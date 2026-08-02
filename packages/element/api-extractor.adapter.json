@@ -1,0 +1,11 @@
+{
+  "extends": "../../api-extractor.base.json",
+  "mainEntryPointFilePath": "<projectFolder>/dist/adapter.d.ts",
+  "apiReport": { "reportFileName": "element-adapter.api.md" },
+  "dtsRollup": {
+    "untrimmedFilePath": "<projectFolder>/dist/adapter.rollup.d.ts"
+  },
+  "tsdocMetadata": {
+    "tsdocMetadataFilePath": "<projectFolder>/dist/adapter-tsdoc-metadata.json"
+  }
+}

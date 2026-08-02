@@ -3,6 +3,7 @@ dist/
 coverage/
 artifacts/
 .cache/
+.svelte-kit/
 packages/*/temp/
 playwright-report/
 test-results/

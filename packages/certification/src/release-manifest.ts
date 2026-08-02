@@ -23,7 +23,10 @@ const REQUIRED_CANDIDATE_ROLES = new Set([
 const ALLOWED_CANDIDATE_ROLES = new Set([...REQUIRED_CANDIDATE_ROLES, "project-metadata"]);
 const RELEASE_PACKAGE_DIRECTORIES = PUBLIC_RELEASE_PACKAGES.map((name) => name.slice("@pixel-point/aval-".length));
 const REQUIRED_SBOM_PATHS = new Set(["workspace", ...RELEASE_PACKAGE_DIRECTORIES].map((name) => `sbom/${name}.spdx.json`));
-const REQUIRED_API_PATHS = new Set(RELEASE_PACKAGE_DIRECTORIES.map((name) => `etc/api/${name}.api.md`));
+const REQUIRED_API_PATHS = new Set([
+  ...RELEASE_PACKAGE_DIRECTORIES.map((name) => `etc/api/${name}.api.md`),
+  "etc/api/element-adapter.api.md"
+]);
 
 export function candidateManifestDigest(manifest: CandidateManifest): string {
   validateCandidateManifest(manifest);

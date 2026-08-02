@@ -112,6 +112,37 @@ before registration, and is safe to import during server rendering. See the
 [React integration guide](element/react.md) for state timing, authored events,
 manual playback, and binding a motion to another semantic control.
 
+## Svelte applications
+
+Install `@pixel-point/aval-svelte@1.0.0` and create a controller from a reactive
+option getter:
+
+```svelte
+<script lang="ts">
+  import { AvalComponent, createAval } from "@pixel-point/aval-svelte";
+
+  const aval = createAval(() => ({
+    sources: {
+      av1: "/my-motion/av1.avl",
+      vp9: "/my-motion/vp9.avl",
+      h265: "/my-motion/h265.avl",
+      h264: "/my-motion/h264.avl"
+    },
+    state: "idle",
+    autoplay: true,
+    autoBind: true
+  }));
+</script>
+
+<AvalComponent {aval} width={320} height={320} aria-hidden={true} />
+{#if $aval.lastError?.fatal}<img src="/my-motion.png" alt="" />{/if}
+```
+
+The controller is a read-only Svelte store plus the same state, event,
+preparation, and playback commands as the React adapter. See the
+[Svelte integration guide](element/svelte.md) for reactive options, SSR,
+automatic bindings, and cleanup.
+
 The compiler requires a caller-installed FFmpeg/FFprobe build with libx264. It
 never downloads or bundles native tools. See [compiler setup](compiler.md) and
 [browser support](browser-support.md). See

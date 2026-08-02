@@ -11,13 +11,15 @@ import {
   type HTMLAttributes,
   type RefCallback
 } from "react";
-
-import { AvalBinding } from "./aval-binding.js";
 import {
-  normalizeUseAvalOptions,
-  type NormalizedAvalRenderOptions
-} from "./sources.js";
+  createAvalAdapterBinding,
+  createAvalAdapterConfiguration,
+  type AvalAdapterBinding,
+  type AvalAdapterRenderOptions
+} from "@pixel-point/aval-element/adapter";
+
 import type {
+  AvalBindingTarget,
   AvalComponentProps,
   AvalReactInstance,
   UseAvalOptions,
@@ -29,12 +31,12 @@ const useCommitEffect = typeof document === "undefined"
   : useLayoutEffect;
 
 export function useAval(options: Readonly<UseAvalOptions>): UseAvalResult {
-  const normalized = normalizeUseAvalOptions(options);
-  const [binding] = useState(() => new AvalBinding(normalized));
+  const configuration = createAvalAdapterConfiguration(options);
+  const [binding] = useState(() => createAvalAdapterBinding(configuration));
 
   useCommitEffect(() => {
-    binding.commitOptions(normalized);
-  }, [binding, normalized]);
+    binding.commit(configuration);
+  }, [binding, configuration]);
 
   const status = useSyncExternalStore(
     binding.subscribeStatus,
@@ -66,7 +68,7 @@ export function useAval(options: Readonly<UseAvalOptions>): UseAvalResult {
 }
 
 interface AvalHostProps extends AvalComponentProps {
-  readonly binding: AvalBinding;
+  readonly binding: AvalAdapterBinding;
 }
 
 function AvalHost({
@@ -83,7 +85,7 @@ function AvalHost({
   );
 
   useEffect(() => {
-    binding.finalizeBindingTarget(bindTo);
+    binding.finalizeBindingTarget(resolveBindingTarget(bindTo));
   });
   useCommitEffect(
     () => () => binding.clearBindingTarget(),
@@ -107,10 +109,10 @@ function AvalHost({
 
 type AvalHostProperties = HTMLAttributes<HTMLElement> & Readonly<{
   ref: RefCallback<HTMLElement>;
-  state: NormalizedAvalRenderOptions["state"];
-  motion: NormalizedAvalRenderOptions["motion"];
-  fit: NormalizedAvalRenderOptions["fit"];
-  crossorigin: NormalizedAvalRenderOptions["crossOrigin"];
+  state: AvalAdapterRenderOptions["state"];
+  motion: AvalAdapterRenderOptions["motion"];
+  fit: AvalAdapterRenderOptions["fit"];
+  crossorigin: AvalAdapterRenderOptions["crossOrigin"];
   autoplay: "visible" | "manual";
   bindings: "auto" | "none";
   width: number | undefined;
@@ -119,7 +121,7 @@ type AvalHostProperties = HTMLAttributes<HTMLElement> & Readonly<{
 
 function hostProperties(
   ref: RefCallback<HTMLElement>,
-  render: Readonly<NormalizedAvalRenderOptions>,
+  render: Readonly<AvalAdapterRenderOptions>,
   width: number | undefined,
   height: number | undefined,
   htmlProps: Omit<AvalComponentProps, "bindTo" | "width" | "height">
@@ -147,4 +149,11 @@ function stringifyBooleanAria(
       ? String(value)
       : value
   ]));
+}
+
+function resolveBindingTarget(
+  target: AvalBindingTarget | undefined
+): Element | null {
+  if (target == null) return null;
+  return "current" in target ? target.current : target;
 }

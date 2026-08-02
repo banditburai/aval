@@ -15,6 +15,7 @@ import {
 const required = [
   "README.md", "docs/quick-start.md", "docs/states-and-triggers.md",
   "docs/element-api.md", "docs/compiler.md",
+  "docs/element/react.md", "docs/element/svelte.md",
   "docs/compiler/authoring-video-and-states.md",
   "docs/network-and-integrity.md",
   "docs/accessibility-and-motion.md", "docs/performance-and-budgets.md",
@@ -275,6 +276,41 @@ if (
 if (hasAvalFallbackSlot(rabbitReactSource)) {
   failures.push(`${rabbitReactDirectory}: alternate UI must remain outside AVAL ownership`);
 }
+const rabbitSvelteDirectory = "examples/grass-rabbit-svelte";
+const rabbitSveltePackage = JSON.parse(await readFile(
+  join(rabbitSvelteDirectory, "package.json"),
+  "utf8"
+));
+for (const [name, version] of Object.entries({
+  "@fontsource-variable/inter": "5.2.8",
+  "@pixel-point/aval-svelte": "1.0.0",
+  svelte: "5.56.8"
+})) {
+  if (rabbitSveltePackage.dependencies?.[name] !== version) {
+    failures.push(`${rabbitSvelteDirectory}: ${name} must be exactly ${version}`);
+  }
+}
+for (const [name, version] of Object.entries({
+  "@sveltejs/vite-plugin-svelte": "7.2.0",
+  "svelte-check": "4.7.4",
+  typescript: "6.0.3",
+  vite: "8.1.4"
+})) {
+  if (rabbitSveltePackage.devDependencies?.[name] !== version) {
+    failures.push(`${rabbitSvelteDirectory}: ${name} must be exactly ${version}`);
+  }
+}
+const rabbitSvelteSource = await readFile(
+  join(rabbitSvelteDirectory, "src/App.svelte"),
+  "utf8"
+);
+if (
+  !rabbitSvelteSource.includes('from "@pixel-point/aval-svelte"') ||
+  /@pixel-point\/aval-svelte\//u.test(rabbitSvelteSource)
+) failures.push(`${rabbitSvelteDirectory}: component must use only the public Svelte package root`);
+if (hasAvalFallbackSlot(rabbitSvelteSource)) {
+  failures.push(`${rabbitSvelteDirectory}: alternate UI must remain outside AVAL ownership`);
+}
 const plainDirectory = "examples/plain-html";
 const plainPackage = JSON.parse(await readFile(join(plainDirectory, "package.json"), "utf8"));
 const plainHtml = await readFile(join(plainDirectory, "index.html"), "utf8");
@@ -304,7 +340,7 @@ for (const path of [
   }
 }
 if (failures.length > 0) throw new Error(failures.join("\n"));
-process.stdout.write(`${JSON.stringify({ status: "passed", documents: files.length, examples: 6 })}\n`);
+process.stdout.write(`${JSON.stringify({ status: "passed", documents: files.length, examples: 7 })}\n`);
 
 function renderSupport(index) {
   if (!Array.isArray(index.profiles) || index.profiles.length === 0) return [
@@ -327,7 +363,7 @@ async function collect(directory, output) {
   }
 }
 async function collectPublicBoundaryFiles(directory, output) {
-  const allowed = new Set([".html", ".js", ".md", ".ts", ".tsx"]);
+  const allowed = new Set([".html", ".js", ".md", ".svelte", ".ts", ".tsx"]);
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     if ([".next", "dist", "node_modules", "out", "public"].includes(entry.name)) continue;
     const path = join(directory, entry.name);

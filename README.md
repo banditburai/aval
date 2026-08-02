@@ -154,11 +154,14 @@ obligations remain the publisher's responsibility.
 - `@pixel-point/aval-element`: markup-first public browser component.
 - `@pixel-point/aval-react`: SSR-safe Rive-like `useAval()` integration for
   React 18.3 and 19 applications.
+- `@pixel-point/aval-svelte`: Svelte 5 component plus a read-only reactive
+  controller store for AVAL motion.
 
 The element package is SSR-safe. Its root exports explicit registration;
 `@pixel-point/aval-element/auto` is the opt-in automatic-registration entry.
 The React package registers through its client ref and never imports that
-side-effect entry.
+side-effect entry. The Svelte package performs the same registration only
+after its component has mounted and native listeners are attached.
 
 ## Develop and verify
 
@@ -192,6 +195,7 @@ reveals alternate application content.
 - [States and triggers](docs/states-and-triggers.md)
 - [Element API](docs/element-api.md)
 - [React integration](docs/element/react.md)
+- [Svelte integration](docs/element/svelte.md)
 - [Failure handling and reduced motion](docs/element/fallback-and-reduced-motion.md)
 - [Compiler](docs/compiler.md)
 - [Project schema 1.0](docs/project/1.0.md)

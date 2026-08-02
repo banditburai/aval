@@ -8,13 +8,15 @@ if (local.some((argument) => argument !== "--local")) {
   throw new Error("usage: run-api-extractor.mjs [--local]");
 }
 
-const packages = RELEASE_PACKAGE_SPECS.map(({ directory }) => directory);
-for (const packageName of packages) {
+const extractionTasks = RELEASE_PACKAGE_SPECS.flatMap(({ directory, apiExtractorConfigs }) =>
+  apiExtractorConfigs.map((config) => Object.freeze({ directory, config }))
+);
+for (const { directory, config } of extractionTasks) {
   const args = [
     "node_modules/@microsoft/api-extractor/bin/api-extractor",
     "run",
     "--config",
-    `packages/${packageName}/api-extractor.json`,
+    `packages/${directory}/${config}`,
     ...local
   ];
   const result = spawnSync(process.execPath, args, {
@@ -26,4 +28,9 @@ for (const packageName of packages) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-process.stdout.write(`${JSON.stringify({ status: "passed", mode: local.length === 0 ? "verify" : "local", packages: packages.length })}\n`);
+process.stdout.write(`${JSON.stringify({
+  status: "passed",
+  mode: local.length === 0 ? "verify" : "local",
+  packages: RELEASE_PACKAGE_SPECS.length,
+  entryPoints: extractionTasks.length
+})}\n`);

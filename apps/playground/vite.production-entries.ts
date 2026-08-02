@@ -4,7 +4,7 @@ import { open, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { Plugin } from "vite";
+import { defaultClientConditions, defaultServerConditions, type Plugin } from "vite";
 import { PRODUCTION_PUBLIC_ENTRIES } from "../../scripts/release/release-set-model.mjs";
 
 const ENTRY_MANIFEST_PATH = "assets/public-entry-manifest.json";
@@ -38,6 +38,17 @@ export function productionPublicEntriesPlugin(): Plugin {
     name: "aval-production-public-entries",
     enforce: "post",
     apply: "build",
+    configEnvironment(name, config, environment) {
+      config.resolve ??= {};
+      config.resolve.conditions ??= [
+        ...(config.consumer === "client" || name === "client" || environment.isSsrTargetWebworker
+          ? defaultClientConditions
+          : defaultServerConditions)
+      ];
+      for (const { condition } of PRODUCTION_PUBLIC_ENTRIES) {
+        if (!config.resolve.conditions.includes(condition)) config.resolve.conditions.push(condition);
+      }
+    },
     async buildStart() {
       const records: ProductionPublicEntryRecord[] = [];
       expectedPaths = new Set<string>();

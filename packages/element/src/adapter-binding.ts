@@ -1,27 +1,25 @@
+import { defineAvalElement } from "./definition.js";
+import { AvalNotReadyError } from "./errors.js";
+import type {
+  AvalDiagnostics,
+  AvalElement,
+  AvalErrorDetail,
+  AvalPrepareOptions,
+  AvalRequestedStateChangeDetail,
+  AvalSnapshot,
+  AvalTransitionDetail,
+  AvalVisualStateChangeDetail,
+  RuntimeReadiness,
+  RuntimeReadinessResult
+} from "./public-types.js";
 import {
-  AvalNotReadyError,
-  defineAvalElement,
-  type AvalDiagnostics,
-  type AvalElement,
-  type AvalErrorDetail,
-  type AvalPrepareOptions,
-  type AvalRequestedStateChangeDetail,
-  type AvalSnapshot,
-  type AvalTransitionDetail,
-  type AvalVisualStateChangeDetail,
-  type RuntimeReadiness,
-  type RuntimeReadinessResult
-} from "@pixel-point/aval-element";
+  sameAvalRenderOptions,
+  type AvalAdapterCallbacks,
+  type AvalAdapterConfiguration,
+  type AvalAdapterRenderOptions
+} from "./adapter-options.js";
 
-import {
-  sameRenderOptions,
-  type AvalCallbacks,
-  type NormalizedAvalRenderOptions,
-  type NormalizedUseAvalOptions
-} from "./sources.js";
-import type { AvalBindingTarget } from "./types.js";
-
-export interface AvalReactStatus {
+export interface AvalAdapterStatus {
   readonly mounted: boolean;
   readonly readiness: RuntimeReadiness;
   readonly requestedState: string | null;
@@ -34,14 +32,36 @@ export interface AvalReactStatus {
   readonly lastError: Readonly<AvalErrorDetail> | null;
 }
 
-type StoreListener = () => void;
+export interface AvalAdapterBinding {
+  readonly getStatus: () => Readonly<AvalAdapterStatus>;
+  readonly getServerStatus: () => Readonly<AvalAdapterStatus>;
+  readonly getRenderOptions: () => Readonly<AvalAdapterRenderOptions>;
+  readonly subscribeStatus: (listener: () => void) => () => void;
+  readonly subscribeOptions: (listener: () => void) => () => void;
+  commit(configuration: Readonly<AvalAdapterConfiguration>): void;
+  readonly attach: (node: HTMLElement | null) => void;
+  finalizeBindingTarget(target: Element | null | undefined): void;
+  clearBindingTarget(): void;
+  beginReadyPreparation(): () => void;
+  readonly prepare: (
+    options?: Readonly<AvalPrepareOptions>
+  ) => Promise<RuntimeReadinessResult>;
+  readonly setState: (name: string) => Promise<void>;
+  readonly send: (event: string) => boolean;
+  readonly readyFor: (state: string) => boolean;
+  readonly play: () => Promise<void>;
+  readonly pause: () => void;
+  readonly getDiagnostics: (
+    options?: Readonly<{ readonly trace?: boolean }>
+  ) => Readonly<AvalDiagnostics> | null;
+}
 
-export interface AvalBindingNode {
+export interface AvalAdapterBindingNode {
   addEventListener(type: string, listener: EventListener): void;
   removeEventListener(type: string, listener: EventListener): void;
 }
 
-export type AvalBindingElementPort = Pick<
+export type AvalAdapterBindingElementPort = Pick<
   AvalElement,
   | "interactionTarget"
   | "prepare"
@@ -55,13 +75,13 @@ export type AvalBindingElementPort = Pick<
   | "getDiagnostics"
 >;
 
-export interface AvalBindingEnvironment {
-  upgrade(node: AvalBindingNode): AvalBindingElementPort;
+export interface AvalAdapterBindingEnvironment {
+  upgrade(node: AvalAdapterBindingNode): AvalAdapterBindingElementPort;
 }
 
 interface Attachment {
-  readonly node: AvalBindingNode;
-  readonly element: AvalBindingElementPort;
+  readonly node: AvalAdapterBindingNode;
+  readonly element: AvalAdapterBindingElementPort;
   readonly unsubscribe: () => void;
   phase: AttachmentPhase;
 }
@@ -80,13 +100,15 @@ interface Preparation {
   readonly controller: AbortController;
 }
 
+type StoreListener = () => void;
+
 const EMPTY_STRINGS: readonly string[] = Object.freeze([]);
 const NOOP = (): void => undefined;
 
-const BROWSER_ENVIRONMENT: AvalBindingEnvironment = Object.freeze({
-  upgrade(node: AvalBindingNode): AvalBindingElementPort {
+const BROWSER_ENVIRONMENT: AvalAdapterBindingEnvironment = Object.freeze({
+  upgrade(node: AvalAdapterBindingNode): AvalAdapterBindingElementPort {
     defineAvalElement();
-    const element = node as unknown as AvalBindingElementPort;
+    const element = node as unknown as AvalAdapterBindingElementPort;
     if (
       typeof element.getSnapshot !== "function" ||
       typeof element.subscribe !== "function"
@@ -99,39 +121,24 @@ const BROWSER_ENVIRONMENT: AvalBindingEnvironment = Object.freeze({
   }
 });
 
-function unmountedStatus(): Readonly<AvalReactStatus> {
-  return Object.freeze({
-    mounted: false,
-    readiness: "unready",
-    requestedState: null,
-    visualState: null,
-    isTransitioning: false,
-    paused: true,
-    effectivelyVisible: false,
-    stateNames: EMPTY_STRINGS,
-    eventNames: EMPTY_STRINGS,
-    lastError: null
-  });
-}
-
-export class AvalBinding {
+export class AvalAdapterBindingImplementation implements AvalAdapterBinding {
   readonly #statusListeners = new Set<StoreListener>();
   readonly #optionsListeners = new Set<StoreListener>();
   readonly #serverStatus = unmountedStatus();
   readonly #nativeListeners: readonly (readonly [string, EventListener])[];
-  readonly #environment: AvalBindingEnvironment;
-  #status: Readonly<AvalReactStatus>;
-  #renderOptions: Readonly<NormalizedAvalRenderOptions>;
-  #callbacks: Readonly<AvalCallbacks>;
+  readonly #environment: AvalAdapterBindingEnvironment;
+  #status: Readonly<AvalAdapterStatus>;
+  #renderOptions: Readonly<AvalAdapterRenderOptions>;
+  #callbacks: Readonly<AvalAdapterCallbacks>;
   #attachment: Attachment | null = null;
   #preparation: Preparation | null = null;
 
   public constructor(
-    options: Readonly<NormalizedUseAvalOptions>,
-    environment: AvalBindingEnvironment = BROWSER_ENVIRONMENT
+    configuration: Readonly<AvalAdapterConfiguration>,
+    environment: AvalAdapterBindingEnvironment = BROWSER_ENVIRONMENT
   ) {
-    this.#renderOptions = options.render;
-    this.#callbacks = options.callbacks;
+    this.#renderOptions = configuration.render;
+    this.#callbacks = configuration.callbacks;
     this.#status = this.#serverStatus;
     this.#environment = environment;
     this.#nativeListeners = Object.freeze([
@@ -155,11 +162,11 @@ export class AvalBinding {
     ]);
   }
 
-  public readonly getStatus = (): Readonly<AvalReactStatus> => this.#status;
-  public readonly getServerStatus = (): Readonly<AvalReactStatus> =>
+  public readonly getStatus = (): Readonly<AvalAdapterStatus> => this.#status;
+  public readonly getServerStatus = (): Readonly<AvalAdapterStatus> =>
     this.#serverStatus;
   public readonly getRenderOptions = ():
-  Readonly<NormalizedAvalRenderOptions> => this.#renderOptions;
+  Readonly<AvalAdapterRenderOptions> => this.#renderOptions;
 
   public readonly subscribeStatus = (listener: StoreListener): (() => void) =>
     this.#subscribe(this.#statusListeners, listener);
@@ -167,17 +174,17 @@ export class AvalBinding {
   public readonly subscribeOptions = (listener: StoreListener): (() => void) =>
     this.#subscribe(this.#optionsListeners, listener);
 
-  public commitOptions(options: Readonly<NormalizedUseAvalOptions>): void {
-    this.#callbacks = options.callbacks;
-    if (sameRenderOptions(this.#renderOptions, options.render)) return;
-    if (this.#renderOptions.sourceKey !== options.render.sourceKey) {
+  public commit(configuration: Readonly<AvalAdapterConfiguration>): void {
+    this.#callbacks = configuration.callbacks;
+    if (sameAvalRenderOptions(this.#renderOptions, configuration.render)) return;
+    if (this.#renderOptions.sourceKey !== configuration.render.sourceKey) {
       this.#cancelPreparation(this.#preparation);
     }
-    this.#renderOptions = options.render;
+    this.#renderOptions = configuration.render;
     this.#notify(this.#optionsListeners);
   }
 
-  public readonly attach = (node: AvalBindingNode | null): void => {
+  public readonly attach = (node: AvalAdapterBindingNode | null): void => {
     const current = this.#attachment;
     if (node === current?.node) return;
     if (node === null) {
@@ -186,15 +193,15 @@ export class AvalBinding {
     }
     if (current !== null) {
       throw new Error(
-        "One AvalComponent returned by useAval cannot be mounted more than once"
+        "One AVAL adapter binding cannot be mounted more than once"
       );
     }
 
-    for (const [type, listener] of this.#nativeListeners) {
-      node.addEventListener(type, listener);
-    }
     let unsubscribe = NOOP;
     try {
+      for (const [type, listener] of this.#nativeListeners) {
+        node.addEventListener(type, listener);
+      }
       const element = this.#environment.upgrade(node);
       unsubscribe = element.subscribe(this.#syncElementSnapshot);
       this.#attachment = {
@@ -210,42 +217,10 @@ export class AvalBinding {
     }
   };
 
-  public beginReadyPreparation(): () => void {
-    const attachment = this.#attachment;
-    if (attachment === null) return NOOP;
-    this.#cancelPreparation(this.#preparation);
-
-    const operation: Preparation = {
-      attachment,
-      sourceKey: this.#renderOptions.sourceKey,
-      controller: new AbortController()
-    };
-    this.#preparation = operation;
-    void attachment.element.prepare({
-      signal: operation.controller.signal
-    }).then((result) => {
-      if (
-        this.#preparation !== operation ||
-        this.#attachment !== operation.attachment ||
-        this.#renderOptions.sourceKey !== operation.sourceKey ||
-        operation.controller.signal.aborted
-      ) return;
-      this.#preparation = null;
-      try { this.#callbacks.onReady?.(result); }
-      catch (error) {
-        queueMicrotask(() => { throw error; });
-      }
-    }, () => {
-      if (this.#preparation === operation) this.#preparation = null;
-    });
-
-    return () => this.#cancelPreparation(operation);
-  }
-
-  public finalizeBindingTarget(target: AvalBindingTarget | undefined): void {
+  public finalizeBindingTarget(target: Element | null | undefined): void {
     const attachment = this.#attachment;
     if (attachment === null) return;
-    const resolved = resolveBindingTarget(target);
+    const resolved = target ?? null;
     const phase = attachment.phase;
     if (phase.kind === "mounted" && phase.target === resolved) return;
     attachment.element.interactionTarget = resolved;
@@ -270,6 +245,30 @@ export class AvalBinding {
     ) return;
     attachment.element.interactionTarget = null;
     attachment.phase = Object.freeze({ ...attachment.phase, target: null });
+  }
+
+  public beginReadyPreparation(): () => void {
+    const attachment = this.#attachment;
+    if (attachment === null) return NOOP;
+    this.#cancelPreparation(this.#preparation);
+
+    const operation: Preparation = {
+      attachment,
+      sourceKey: this.#renderOptions.sourceKey,
+      controller: new AbortController()
+    };
+    this.#preparation = operation;
+    void attachment.element.prepare({
+      signal: operation.controller.signal
+    }).then((result) => {
+      if (!this.#isCurrentPreparation(operation)) return;
+      this.#preparation = null;
+      invokeReadyCallback(this.#callbacks.onReady, result);
+    }, () => {
+      if (this.#preparation === operation) this.#preparation = null;
+    });
+
+    return () => this.#cancelPreparation(operation);
   }
 
   public readonly prepare = (
@@ -319,7 +318,7 @@ export class AvalBinding {
     listener: StoreListener
   ): () => void {
     if (typeof listener !== "function") {
-      throw new TypeError("AVAL React store subscriber must be a function");
+      throw new TypeError("AVAL adapter store subscriber must be a function");
     }
     listeners.add(listener);
     let active = true;
@@ -333,7 +332,7 @@ export class AvalBinding {
   #notify(listeners: ReadonlySet<StoreListener>): void {
     for (const listener of [...listeners]) {
       try { listener(); }
-      catch { /* observers cannot interrupt element or React ownership */ }
+      catch { /* Observers cannot interrupt adapter ownership. */ }
     }
   }
 
@@ -346,7 +345,7 @@ export class AvalBinding {
     this.#publishStatus(statusFromElement(snapshot));
   };
 
-  #publishStatus(status: Readonly<AvalReactStatus>): void {
+  #publishStatus(status: Readonly<AvalAdapterStatus>): void {
     if (this.#status === status) return;
     this.#status = status;
     this.#notify(this.#statusListeners);
@@ -369,13 +368,20 @@ export class AvalBinding {
     this.#publishStatus(this.#serverStatus);
   }
 
+  #isCurrentPreparation(operation: Preparation): boolean {
+    return this.#preparation === operation &&
+      this.#attachment === operation.attachment &&
+      this.#renderOptions.sourceKey === operation.sourceKey &&
+      !operation.controller.signal.aborted;
+  }
+
   #cancelPreparation(operation: Preparation | null): void {
     if (operation === null) return;
     operation.controller.abort();
     if (this.#preparation === operation) this.#preparation = null;
   }
 
-  #removeNativeListeners(node: AvalBindingNode): void {
+  #removeNativeListeners(node: AvalAdapterBindingNode): void {
     for (const [type, listener] of this.#nativeListeners) {
       node.removeEventListener(type, listener);
     }
@@ -412,9 +418,30 @@ export class AvalBinding {
   };
 }
 
+export function createAvalAdapterBinding(
+  configuration: Readonly<AvalAdapterConfiguration>
+): AvalAdapterBinding {
+  return new AvalAdapterBindingImplementation(configuration);
+}
+
+function unmountedStatus(): Readonly<AvalAdapterStatus> {
+  return Object.freeze({
+    mounted: false,
+    readiness: "unready",
+    requestedState: null,
+    visualState: null,
+    isTransitioning: false,
+    paused: true,
+    effectivelyVisible: false,
+    stateNames: EMPTY_STRINGS,
+    eventNames: EMPTY_STRINGS,
+    lastError: null
+  });
+}
+
 function statusFromElement(
   snapshot: Readonly<AvalSnapshot>
-): Readonly<AvalReactStatus> {
+): Readonly<AvalAdapterStatus> {
   return Object.freeze({
     mounted: true,
     readiness: snapshot.readiness,
@@ -429,12 +456,14 @@ function statusFromElement(
   });
 }
 
-function resolveBindingTarget(
-  input: AvalBindingTarget | undefined
-): Element | null {
-  if (input === undefined || input === null) return null;
-  if ("current" in input) return input.current;
-  return input;
+function invokeReadyCallback(
+  callback: AvalAdapterCallbacks["onReady"],
+  result: Readonly<RuntimeReadinessResult>
+): void {
+  try { callback?.(result); }
+  catch (error) {
+    queueMicrotask(() => { throw error; });
+  }
 }
 
 function notMountedError(): AvalNotReadyError {

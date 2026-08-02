@@ -16,6 +16,10 @@
     "./auto": {
       "types": "./dist/auto.d.ts",
       "import": "./dist/auto.js"
+    },
+    "./adapter": {
+      "types": "./dist/adapter.d.ts",
+      "import": "./dist/adapter.js"
     }
   },
   "files": ["dist", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],

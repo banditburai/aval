@@ -1,5 +1,5 @@
 import { constants as fsConstants } from "node:fs";
-import { lstat, mkdir, mkdtemp, open, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, open, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -82,13 +82,37 @@ async function stagePublicDistribution({ repository, name, temporary, staged }) 
   const short = specification.directory;
   const distribution = join(temporary, "dist", short);
   await mkdir(distribution, { recursive: true });
-  const config = join(temporary, `tsconfig.${short}.json`);
-  await writeFile(config, `${JSON.stringify(privateBuildConfig(repository, specification, distribution, staged), null, 2)}\n`, { flag: "wx", mode: 0o400 });
   const source = packageDirectory(repository, name, "src");
-  const sourceFiles = listProgramSourceFiles({ repository, config, source, specification });
-  const result = spawnSync(process.execPath, [resolve(repository, "node_modules/typescript/bin/tsc"), "-p", config, "--pretty", "false"], { cwd: repository, stdio: "inherit", timeout: 5 * 60_000 });
-  if (result.error !== undefined) throw result.error;
-  if (result.status !== 0) throw new Error(`private fresh public build failed for ${name}`);
+  const config = join(temporary, `tsconfig.${short}.json`);
+  let sourceFiles;
+  if (specification.buildConfig.kind === "typescript") {
+    await writeFile(config, `${JSON.stringify(privateTypeScriptBuildConfig(repository, specification, distribution, staged), null, 2)}\n`, { flag: "wx", mode: 0o400 });
+    sourceFiles = listProgramSourceFiles({ repository, config, source, specification });
+    runPrivateBuild({
+      repository,
+      name,
+      command: resolve(repository, "node_modules/typescript/bin/tsc"),
+      args: ["-p", config, "--pretty", "false"]
+    });
+  } else if (specification.buildConfig.kind === "svelte-package") {
+    const buildWorkspace = join(temporary, "svelte-package", short);
+    await mkdir(buildWorkspace, { recursive: true });
+    await Promise.all(["package.json", "svelte.config.js"].map((path) =>
+      copyFile(resolve(repository, "packages", short, path), join(buildWorkspace, path))
+    ));
+    const svelteConfig = join(buildWorkspace, "tsconfig.json");
+    await writeFile(svelteConfig, `${JSON.stringify(privateSvelteBuildConfig(repository, specification, source, staged), null, 2)}\n`, { flag: "wx", mode: 0o400 });
+    sourceFiles = await listSveltePackageSourceFiles({ source, specification });
+    runPrivateBuild({
+      repository,
+      workingDirectory: buildWorkspace,
+      name,
+      command: resolve(repository, "node_modules/@sveltejs/package/svelte-package.js"),
+      args: ["-i", source, "-o", distribution, "--tsconfig", svelteConfig]
+    });
+  } else {
+    throw new Error(`unknown private public build kind for ${name}: ${String(specification.buildConfig.kind)}`);
+  }
   for (const stepName of specification.buildConfig.buildSteps) reviewedBuildStep(stepName).run({ repository, distribution });
   for (const target of Object.values(specification.bin)) await ensureCompilerCliExecutable(distributionEntry(distribution, target));
   await assertDistributionDerived({ source, sourceFiles, distribution, packageName: name });
@@ -126,10 +150,10 @@ export async function installVerifiedDistributions({ root, staged, backupRoot, r
   }
 }
 
-function privateBuildConfig(root, specification, distribution, staged) {
+function privateTypeScriptBuildConfig(root, specification, distribution, staged) {
   const source = packageDirectory(root, specification.name, "src");
   const build = specification.buildConfig;
-  const paths = Object.fromEntries([...staged].map(([packageName, path]) => [packageName, [join(path, "index.d.ts")]]));
+  if (typeof specification.buildInfo !== "string") throw new Error(`${specification.name} TypeScript release build has no build-info contract`);
   const config = {
     extends: packageDirectory(root, specification.name, build.config),
     compilerOptions: {
@@ -137,7 +161,7 @@ function privateBuildConfig(root, specification, distribution, staged) {
       rootDir: source,
       outDir: distribution,
       tsBuildInfoFile: join(distribution, specification.buildInfo),
-      paths
+      paths: stagedDeclarationPaths(staged)
     }
   };
   if (build.source.kind === "files") {
@@ -152,6 +176,55 @@ function privateBuildConfig(root, specification, distribution, staged) {
     include: [...build.source.include, ...build.additionalSources].map((path) => slash(join(source, path))),
     exclude: build.source.exclude.map((path) => slash(join(source, path)))
   };
+}
+
+function privateSvelteBuildConfig(root, specification, source, staged) {
+  const selection = specification.buildConfig.source;
+  if (selection.kind !== "files") throw new Error(`${specification.name} Svelte package must use an exact file-source contract`);
+  return {
+    extends: packageDirectory(root, specification.name, specification.buildConfig.config),
+    compilerOptions: {
+      paths: stagedDeclarationPaths(staged)
+    },
+    files: [...selection.paths, ...specification.buildConfig.additionalSources].map((path) => slash(join(source, path))),
+    include: []
+  };
+}
+
+export function stagedDeclarationPaths(staged) {
+  const paths = {};
+  for (const [packageName, distribution] of staged) {
+    const specification = releasePackageSpecification(packageName);
+    for (const entry of specification.productionEntries) {
+      const target = specification.exports[entry.export]?.types;
+      if (typeof target !== "string" || !target.startsWith("./dist/") || target.includes("..") || target.includes("\\")) {
+        throw new Error(`${packageName} production export ${entry.export} has no safe declaration target`);
+      }
+      const specifier = entry.export === "." ? packageName : `${packageName}${entry.export.slice(1)}`;
+      paths[specifier] = Object.freeze([join(distribution, target.slice("./dist/".length))]);
+    }
+  }
+  return Object.freeze(paths);
+}
+
+function runPrivateBuild({ repository, workingDirectory = repository, name, command, args }) {
+  const result = spawnSync(process.execPath, [command, ...args], { cwd: workingDirectory, stdio: "inherit", timeout: 5 * 60_000 });
+  if (result.error !== undefined) throw result.error;
+  if (result.status !== 0) throw new Error(`private fresh public build failed for ${name}`);
+}
+
+async function listSveltePackageSourceFiles({ source, specification }) {
+  const available = (await collectFiles(resolve(source)))
+    .filter((path) => isReleaseSource(path, specification))
+    .sort(compareText);
+  const selection = specification.buildConfig.source;
+  if (selection.kind !== "files") throw new Error(`${specification.name} Svelte package must use an exact file-source contract`);
+  const reviewed = [...selection.paths, ...specification.buildConfig.additionalSources].sort(compareText);
+  if (new Set(reviewed).size !== reviewed.length || reviewed.length === 0) throw new Error(`${specification.name} Svelte release source selection is invalid`);
+  if (!sameArray(available, reviewed)) {
+    throw new Error(`${specification.name} Svelte package source closure drifted: expected ${reviewed.join(", ")}; received ${available.join(", ")}`);
+  }
+  return Object.freeze(reviewed);
 }
 
 function listProgramSourceFiles({ repository, config, source, specification }) {
@@ -218,6 +291,11 @@ export async function assertDistributionDerived({ source, sourceFiles, distribut
       continue;
     }
     if (path.endsWith(".d.ts")) continue;
+    if (path.endsWith(".svelte")) {
+      expected.add(path);
+      expected.add(`${path}.d.ts`);
+      continue;
+    }
     const stem = path.endsWith(".tsx") ? path.slice(0, -4) : path.slice(0, -3);
     expected.add(`${stem}.js`);
     expected.add(`${stem}.d.ts`);
@@ -229,13 +307,13 @@ export async function assertDistributionDerived({ source, sourceFiles, distribut
   for (const stepName of specification.buildConfig.buildSteps) {
     for (const output of reviewedBuildStep(stepName).outputs) expected.add(output);
   }
-  expected.add(specification.buildInfo);
+  if (typeof specification.buildInfo === "string") expected.add(specification.buildInfo);
   const outputs = await collectFiles(resolve(distribution));
   for (const path of outputs) {
     if (!expected.has(path)) throw new Error(`${packageName} distribution output is not in the exact release emission contract: ${path}`);
-    if (/(?:^|\/)(?:[^/]+\.(?:test|compile)\.(?:js|d\.ts)|[^/]*test-support\.(?:js|d\.ts))$/u.test(path)) throw new Error(`${packageName} distribution contains test output: ${path}`);
+    if (/(?:^|\/)(?:[^/]+\.(?:test|compile)\.(?:js|d\.ts|svelte(?:\.d\.ts)?)|[^/]*test-support\.(?:js|d\.ts|svelte(?:\.d\.ts)?))$/u.test(path)) throw new Error(`${packageName} distribution contains test output: ${path}`);
   }
-  for (const path of expected) if (!outputs.includes(path)) throw new Error(`${packageName} fresh distribution is missing required source-derived output: ${path}`);
+  for (const path of expected) if (!outputs.includes(path)) throw new Error(`${packageName} fresh distribution is missing required source-derived output: ${path}; emitted ${outputs.join(", ") || "nothing"}`);
   if (outputs.length !== expected.size) throw new Error(`${packageName} fresh distribution output count does not match the exact emission contract`);
   return Object.freeze({ sourceFiles: Object.freeze(reviewedSources), outputs: Object.freeze(outputs) });
 }
@@ -252,9 +330,11 @@ async function collectFiles(root, directory = root, output = []) {
 }
 
 function isReleaseSource(path, specification) {
-  return specification.buildConfig.additionalSources.includes(path) ||
-    /\.tsx?$/u.test(path) && !/\.(?:test|compile)\.tsx?$/u.test(path) &&
-      !/test-support\.tsx?$/u.test(path);
+  return specification.buildConfig.additionalSources.includes(path) || (
+    specification.buildConfig.kind === "svelte-package"
+      ? /\.(?:ts|svelte)$/u.test(path) && !/\.(?:test|compile)\.(?:ts|svelte)$/u.test(path) && !/test-support\.(?:ts|svelte)$/u.test(path)
+      : /\.tsx?$/u.test(path) && !/\.(?:test|compile)\.tsx?$/u.test(path) && !/test-support\.tsx?$/u.test(path)
+  );
 }
 function packageDirectory(root, name, child) { return resolve(root, "packages", releasePackageDirectory(name), child); }
 function reviewedBuildStep(name) {
@@ -267,3 +347,4 @@ function distributionEntry(distribution, target) {
   return join(distribution, target.slice("./dist/".length));
 }
 function compareText(left, right) { return left < right ? -1 : left > right ? 1 : 0; }
+function sameArray(left, right) { return left.length === right.length && left.every((value, index) => value === right[index]); }

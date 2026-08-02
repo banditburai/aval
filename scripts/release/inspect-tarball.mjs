@@ -148,7 +148,8 @@ function validatePackageContents(entries, manifest, label) {
       throw new Error(`${label} contains an undeclared package-root file: ${relative}`);
     }
     const isReviewedAdditionalSource = additionalSourcePaths.has(relative);
-    if (relative.startsWith("dist/") && !/\.(?:js|d\.ts)$/u.test(relative) && !isReviewedAdditionalSource) {
+    const isReviewedSvelteSource = specification.buildConfig.kind === "svelte-package" && /\.svelte$/u.test(relative);
+    if (relative.startsWith("dist/") && !/\.(?:js|d\.ts)$/u.test(relative) && !isReviewedSvelteSource && !isReviewedAdditionalSource) {
       throw new Error(`${label} contains an unreviewed distribution file type: ${relative}`);
     }
     const executable = (entry.mode & 0o111) !== 0;

@@ -44,19 +44,25 @@ export const RELEASE_PACKAGE_SPECS = Object.freeze([
     dependencies: ["@pixel-point/aval-graph", "@pixel-point/aval-format"],
     exports: {
       ...ROOT_EXPORT,
-      "./auto": { types: "./dist/auto.d.ts", import: "./dist/auto.js" }
+      "./auto": { types: "./dist/auto.d.ts", import: "./dist/auto.js" },
+      "./adapter": {
+        types: "./dist/adapter.d.ts",
+        import: "./dist/adapter.js"
+      }
     },
     sideEffects: ["./dist/auto.js"],
     productionEntries: [
       { export: ".", requiredInGraph: true },
-      { export: "./auto", requiredInGraph: true }
+      { export: "./auto", requiredInGraph: true },
+      { export: "./adapter", requiredInGraph: false }
     ],
     buildConfig: typescriptBuild({
       config: "tsconfig.release.json",
       compilerOptions: { composite: false, incremental: true },
-      source: fileSources(["index.ts", "auto.ts"]),
+      source: fileSources(["index.ts", "auto.ts", "adapter.ts"]),
       buildSteps: ["element-worker"]
     }),
+    apiExtractorConfigs: ["api-extractor.json", "api-extractor.adapter.json"],
     buildInfo: "element.release.tsbuildinfo"
   }),
   packageSpec({
@@ -84,6 +90,20 @@ export const RELEASE_PACKAGE_SPECS = Object.freeze([
       source: fileSources(["index.ts"])
     }),
     buildInfo: "react.release.tsbuildinfo"
+  }),
+  packageSpec({
+    name: "@pixel-point/aval-svelte",
+    directory: "svelte",
+    dependencies: ["@pixel-point/aval-element"],
+    peerDependencies: { svelte: "^5.0.0" },
+    exports: {
+      ".": { types: "./dist/index.d.ts", svelte: "./dist/index.js" }
+    },
+    productionEntries: [{ export: ".", requiredInGraph: false }],
+    buildConfig: sveltePackageBuild({
+      config: "tsconfig.json",
+      source: fileSources(["AvalComponent.svelte", "controller.ts", "index.ts", "types.ts"])
+    })
   })
 ]);
 export const RELEASE_PACKAGE_NAMES = Object.freeze(topologicalPackageOrder(RELEASE_PACKAGE_SPECS));
@@ -140,9 +160,13 @@ function packageSpec({
   bin = {},
   productionEntries,
   buildConfig,
+  apiExtractorConfigs = ["api-extractor.json"],
   buildInfo
 }) {
   if (!Array.isArray(productionEntries)) throw new Error(`${name} must explicitly declare its production entries`);
+  if (!Array.isArray(apiExtractorConfigs) || apiExtractorConfigs.length === 0 || apiExtractorConfigs.some((path) => !/^api-extractor(?:\.[A-Za-z0-9_-]+)?\.json$/u.test(path))) {
+    throw new Error(`${name} API Extractor configuration contract is invalid`);
+  }
   return deepFreeze({
     name,
     directory,
@@ -153,6 +177,7 @@ function packageSpec({
     bin: { ...bin },
     productionEntries: productionEntries.map((entry) => ({ ...entry })),
     buildConfig,
+    apiExtractorConfigs: [...apiExtractorConfigs],
     buildInfo
   });
 }
@@ -166,12 +191,27 @@ function typescriptBuild({
   sourceMaps = false
 }) {
   return deepFreeze({
+    kind: "typescript",
+    runtimeCondition: "import",
     config,
     compilerOptions: { ...compilerOptions },
     source,
     additionalSources: [...additionalSources],
     buildSteps: [...buildSteps],
     sourceMaps
+  });
+}
+
+function sveltePackageBuild({ config, source }) {
+  return deepFreeze({
+    kind: "svelte-package",
+    runtimeCondition: "svelte",
+    config,
+    compilerOptions: {},
+    source,
+    additionalSources: [],
+    buildSteps: [],
+    sourceMaps: false
   });
 }
 
@@ -189,12 +229,14 @@ function productionPublicEntry(specification, entry) {
   if (entry === null || typeof entry !== "object" || typeof entry.export !== "string" || typeof entry.requiredInGraph !== "boolean") {
     throw new Error(`${specification.name} production entry selection is invalid`);
   }
-  const target = specification.exports[entry.export]?.import;
-  if (typeof target !== "string" || !target.startsWith("./dist/") || target.includes("..") || target.includes("\\")) throw new Error(`${specification.name} production export ${entry.export} has no safe import target`);
+  const condition = specification.buildConfig.runtimeCondition;
+  const target = specification.exports[entry.export]?.[condition];
+  if (typeof condition !== "string" || typeof target !== "string" || !target.startsWith("./dist/") || target.includes("..") || target.includes("\\")) throw new Error(`${specification.name} production export ${entry.export} has no safe ${String(condition)} target`);
   if (entry.export !== "." && !/^\.\/[A-Za-z0-9_-]+$/u.test(entry.export)) throw new Error(`${specification.name} production export name is invalid: ${String(entry.export)}`);
   return deepFreeze({
     package: specification.name,
     export: entry.export,
+    condition,
     path: target.slice(2),
     specifier: entry.export === "." ? specification.name : `${specification.name}${entry.export.slice(1)}`,
     directory: specification.directory,

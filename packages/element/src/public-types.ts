@@ -58,7 +58,7 @@ export type RuntimeFailureCode =
   | "abort"
   | "disposed";
 
-interface RuntimeFailureContext {
+export interface RuntimeFailureContext {
   readonly rendition?: string;
   readonly profile?: string;
   readonly codec?: string;
@@ -89,20 +89,20 @@ interface RuntimeFailureContext {
   readonly pageBytes?: number;
 }
 
-interface RuntimeFailure {
+export interface RuntimeFailure {
   readonly code: RuntimeFailureCode;
   readonly message: string;
   readonly context: Readonly<RuntimeFailureContext>;
 }
 
-interface RuntimeCandidateReport {
+export interface RuntimeCandidateReport {
   readonly rendition: string;
   readonly rank: number;
   readonly outcome: "eligible" | "selected" | "rejected";
   readonly failure: Readonly<RuntimeFailure> | null;
 }
 
-interface RuntimeReadinessReport {
+export interface RuntimeReadinessReport {
   readonly readiness: "interactiveReady" | "staticReady";
   readonly selectedRendition: string | null;
   readonly candidates: readonly Readonly<RuntimeCandidateReport>[];

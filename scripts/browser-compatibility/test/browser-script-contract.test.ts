@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import grassRabbitCodecs from "../../../playwright.grass-rabbit-codecs.config.js";
 import grassRabbitReact from "../../../playwright.grass-rabbit-react.config.js";
+import grassRabbitSvelte from "../../../playwright.grass-rabbit-svelte.config.js";
 import grassRabbit from "../../../playwright.grass-rabbit.config.js";
 import kineticOrb from "../../../playwright.kinetic-orb.config.js";
 import playground from "../../../playwright.playground.config.js";
@@ -16,6 +17,7 @@ describe("permanent-demo browser command contract", () => {
     ["playground", playground],
     ["grass-rabbit", grassRabbit],
     ["grass-rabbit-react", grassRabbitReact],
+    ["grass-rabbit-svelte", grassRabbitSvelte],
     ["grass-rabbit-codecs", grassRabbitCodecs],
     ["kinetic-orb", kineticOrb]
   ])("includes Chromium, Firefox, and WebKit for %s", (_name, config) => {
@@ -31,6 +33,7 @@ describe("permanent-demo browser command contract", () => {
       "test:playground",
       "test:grass-rabbit",
       "test:grass-rabbit-react",
+      "test:grass-rabbit-svelte",
       "test:grass-rabbit-codecs",
       "test:kinetic-orb:prebuilt"
     ]) {
@@ -44,6 +47,7 @@ describe("permanent-demo browser command contract", () => {
       playground,
       grassRabbit,
       grassRabbitReact,
+      grassRabbitSvelte,
       grassRabbitCodecs,
       kineticOrb
     ]) {
@@ -70,6 +74,7 @@ describe("permanent-demo browser command contract", () => {
       playground,
       grassRabbit,
       grassRabbitReact,
+      grassRabbitSvelte,
       grassRabbitCodecs
     ]) {
       expect(config.projects?.some(({ name }) => name.includes("soak"))).toBe(false);

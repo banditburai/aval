@@ -8,6 +8,7 @@ const REQUIRED: readonly (readonly [role: string, path: string, mediaType: strin
   ["sbom", "sbom/workspace.spdx.json", "application/json"],
   ...PUBLIC_RELEASE_PACKAGES.map((name) => ["sbom", `sbom/${name.slice("@pixel-point/aval-".length)}.spdx.json`, "application/json"] as const),
   ...PUBLIC_RELEASE_PACKAGES.map((name) => ["api-report", `etc/api/${name.slice("@pixel-point/aval-".length)}.api.md`, "text/markdown"] as const),
+  ["api-report", "etc/api/element-adapter.api.md", "text/markdown"],
   ["schema", "schemas/candidate-manifest.schema.json", "application/json"],
   ["fixture", "fixtures/certification/v1/av1.avl", "application/octet-stream"],
   ["documentation", "docs/quick-start.md", "text/markdown"],

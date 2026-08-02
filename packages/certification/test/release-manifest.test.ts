@@ -44,6 +44,9 @@ describe("immutable release manifests", () => {
     expect(() => validateCandidateManifest({ ...manifest, artifacts: manifest.artifacts.filter(({ path }) => path !== "etc/api/compiler.api.md") })).toThrow(/required API report/u);
     expect(() => validateCandidateManifest({ ...manifest, artifacts: manifest.artifacts.filter(({ path }) => path !== "sbom/react.spdx.json") })).toThrow(/required SBOM/u);
     expect(() => validateCandidateManifest({ ...manifest, artifacts: manifest.artifacts.filter(({ path }) => path !== "etc/api/react.api.md") })).toThrow(/required API report/u);
+    expect(() => validateCandidateManifest({ ...manifest, artifacts: manifest.artifacts.filter(({ path }) => path !== "sbom/svelte.spdx.json") })).toThrow(/required SBOM/u);
+    expect(() => validateCandidateManifest({ ...manifest, artifacts: manifest.artifacts.filter(({ path }) => path !== "etc/api/svelte.api.md") })).toThrow(/required API report/u);
+    expect(() => validateCandidateManifest({ ...manifest, artifacts: manifest.artifacts.filter(({ path }) => path !== "etc/api/element-adapter.api.md") })).toThrow(/required API report/u);
     expect(() => validateCandidateManifest({ ...manifest, artifacts: manifest.artifacts.filter(({ role }) => role !== "candidate-layout") })).toThrow(/candidate-layout/u);
     expect(() => validateCandidateManifest({ ...manifest, tools: { ...manifest.tools, node: "latest" } })).toThrow(/semantic tool/u);
     expect(() => validateCandidateManifest({ ...manifest, tools: { ...manifest.tools, playwrightBrowserManifestSha256: "f".repeat(64) } })).toThrow(/unknown field/u);
