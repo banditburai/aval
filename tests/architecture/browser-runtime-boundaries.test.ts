@@ -1,6 +1,8 @@
 import {
   mkdir,
   mkdtemp,
+  readFile,
+  readdir,
   rm,
   writeFile
 } from "node:fs/promises";
@@ -72,6 +74,27 @@ afterEach(async () => {
 });
 
 describe("browser runtime architecture", () => {
+  it("keeps the architecture gate decomposed into focused modules", async () => {
+    const scripts = new URL(
+      "../../scripts/architecture/",
+      import.meta.url
+    );
+    const coordinator = await readFile(
+      new URL("check-browser-runtime-boundaries.mjs", scripts),
+      "utf8"
+    );
+    expect(lineCount(coordinator)).toBeLessThanOrEqual(200);
+
+    const rules = new URL("browser-runtime-boundaries/", scripts);
+    const modules = (await readdir(rules, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".mjs"));
+    expect(modules.length).toBeGreaterThan(0);
+    for (const module of modules) {
+      const source = await readFile(new URL(module.name, rules), "utf8");
+      expect(lineCount(source)).toBeLessThanOrEqual(400);
+    }
+  });
+
   it("keeps element as the sole browser runtime", async () => {
     await expect(checkBrowserRuntimeBoundaries()).resolves.toMatchObject({
       status: "passed",
@@ -669,4 +692,8 @@ async function temporaryRoot(prefix: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), prefix));
   roots.push(root);
   return root;
+}
+
+function lineCount(source: string): number {
+  return source.split("\n").length - Number(source.endsWith("\n"));
 }
