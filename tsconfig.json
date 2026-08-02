@@ -11,9 +11,6 @@
       "path": "./packages/compiler"
     },
     {
-      "path": "./packages/player-web"
-    },
-    {
       "path": "./packages/element"
     },
     {

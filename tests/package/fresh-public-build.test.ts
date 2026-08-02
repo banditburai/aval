@@ -249,7 +249,7 @@ describe("fresh public distribution provenance", () => {
         staged.set(name, next);
       }
       const renameEntry = async (source: string, target: string) => {
-        if (source === staged.get("@pixel-point/aval-player-web")) throw new Error("injected install failure");
+        if (source === staged.get("@pixel-point/aval-compiler")) throw new Error("injected install failure");
         await rename(source, target);
       };
       await expect(installVerifiedDistributions({ root, staged, backupRoot: join(root, "backup"), renameEntry })).rejects.toThrow(/injected install failure/u);

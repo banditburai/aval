@@ -19,7 +19,7 @@
   ],
   "scripts": {
     "build": "npm run build:public-packages && npm run build -w @pixel-point/aval-certification && npm run build -w @pixel-point/aval-playground && npm run build -w @pixel-point/aval-end-user-playground && npm run build -w @pixel-point/aval-grass-rabbit-example && npm run build -w @pixel-point/aval-grass-rabbit-react-example && npm run build -w @pixel-point/aval-grass-rabbit-svelte-example && npm run build -w @pixel-point/aval-grass-rabbit-codecs-example && npm run build -w @pixel-point/aval-kinetic-orb-example && npm run build -w @pixel-point/aval-lend-borrow-react-example",
-    "build:public-packages": "npm run build -w @pixel-point/aval-graph && npm run build -w @pixel-point/aval-format && npm run build -w @pixel-point/aval-player-web && npm run build -w @pixel-point/aval-element && npm run build -w @pixel-point/aval-react && npm run build -w @pixel-point/aval-svelte && npm run build -w @pixel-point/aval-compiler",
+    "build:public-packages": "npm run build -w @pixel-point/aval-graph && npm run build -w @pixel-point/aval-format && npm run build -w @pixel-point/aval-element && npm run build -w @pixel-point/aval-react && npm run build -w @pixel-point/aval-svelte && npm run build -w @pixel-point/aval-compiler",
     "dev": "npm run dev -w @pixel-point/aval-playground",
     "playground": "npm run dev -w @pixel-point/aval-end-user-playground --",
     "grass-rabbit": "npm run dev -w @pixel-point/aval-grass-rabbit-example --",
@@ -39,6 +39,7 @@
     "test:unit": "vitest run --config vitest.m9.config.ts",
     "test:mutation": "node scripts/testing/run-seeded-matrix.mjs",
     "test:examples": "node scripts/docs/test-examples.mjs",
+    "architecture:check": "node scripts/architecture/check-browser-runtime-boundaries.mjs",
     "test:consumers": "node scripts/release/test-consumers.mjs",
     "test:packed": "node scripts/release/test-packed-local.mjs",
     "test:browser": "playwright test && npm run test:browser -w @pixel-point/aval-react && npm run test:browser -w @pixel-point/aval-svelte",

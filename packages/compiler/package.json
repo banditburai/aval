@@ -25,7 +25,6 @@
   "dependencies": {
     "@pixel-point/aval-element": "1.0.0",
     "@pixel-point/aval-format": "1.0.0",
-    "@pixel-point/aval-graph": "1.0.0",
-    "@pixel-point/aval-player-web": "1.0.0"
+    "@pixel-point/aval-graph": "1.0.0"
   }
 }

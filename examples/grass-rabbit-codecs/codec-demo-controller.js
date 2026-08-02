@@ -1,4 +1,3 @@
-import { createSourceSupportProbe } from "@pixel-point/aval-player-web";
 import { AvalPlaybackError } from "@pixel-point/aval-element";
 
 import {
@@ -20,6 +19,7 @@ import {
   failureCode,
   reflectPlayerRenderedState
 } from "./codec-player-presentation.js";
+import { probeVideoDecoderSupport } from "./video-decoder-support.js";
 
 const AUTOMATIC_ACTIVATION = Object.freeze({
   kind: "automatic",
@@ -352,31 +352,21 @@ async function fetchBuildReport(reportUrl) {
 async function probeAllCodecs(report, support, simulatedUnsupported) {
   for (const codec of simulatedUnsupported) support.set(codec, "unsupported");
   const candidates = CODECS.filter((codec) => !simulatedUnsupported.has(codec));
-  if (candidates.length === 0) return;
 
-  let owner;
-  try {
-    owner = createSourceSupportProbe();
-  } catch {
-    return;
-  }
-  try {
-    for (let index = 0; index < candidates.length; index += 1) {
-      const codec = candidates[index];
-      try {
-        const asset = requireMapValue(report.assets, codec);
-        const result = await owner.probe(exactProbeConfig(asset.codecString));
-        support.set(codec, result ? "supported" : "unsupported");
-      } catch {
-        support.set(codec, "unavailable");
-        for (const remaining of candidates.slice(index + 1)) {
-          support.set(remaining, "unavailable");
-        }
-        break;
+  for (let index = 0; index < candidates.length; index += 1) {
+    const codec = candidates[index];
+    try {
+      const asset = requireMapValue(report.assets, codec);
+      const supported = await probeVideoDecoderSupport(
+        exactProbeConfig(asset.codecString)
+      );
+      support.set(codec, supported ? "supported" : "unsupported");
+    } catch {
+      for (const unavailable of candidates.slice(index)) {
+        support.set(unavailable, "unavailable");
       }
+      break;
     }
-  } finally {
-    await owner.dispose().catch(() => undefined);
   }
 }
 

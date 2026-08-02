@@ -148,16 +148,16 @@ obligations remain the publisher's responsibility.
 
 - `@pixel-point/aval-graph`: deterministic state and route engine.
 - `@pixel-point/aval-format`: strict AVAL wire 1.1 parser, validator, and writer.
+- `@pixel-point/aval-element`: markup-first browser component and the sole
+  browser loader, decoder scheduler, renderer, and page resource owner.
 - `@pixel-point/aval-compiler`: project 1.0 authoring API and bundle compiler.
-- `@pixel-point/aval-player-web`: bounded loader, codec probing, decoder
-  scheduling, renderer, and page resource management.
-- `@pixel-point/aval-element`: markup-first public browser component.
 - `@pixel-point/aval-react`: SSR-safe Rive-like `useAval()` integration for
   React 18.3 and 19 applications.
 - `@pixel-point/aval-svelte`: Svelte 5 component plus a read-only reactive
   controller store for AVAL motion.
 
-The element package is SSR-safe. Its root exports explicit registration;
+The element package is the canonical browser runtime and is SSR-safe. Its root
+exports explicit registration;
 `@pixel-point/aval-element/auto` is the opt-in automatic-registration entry.
 The React package registers through its client ref and never imports that
 side-effect entry. The Svelte package performs the same registration only

@@ -3,10 +3,5 @@
         "package": "element",
         "output": "decoder-worker.js",
         "search": "?no-inline"
-    },
-    {
-        "package": "player-web",
-        "output": "decoder-worker/entry.js",
-        "search": ""
     }
 ]

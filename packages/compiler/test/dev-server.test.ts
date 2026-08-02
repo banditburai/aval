@@ -34,6 +34,11 @@ import type {
 
 const roots: string[] = [];
 const TEST_SESSION_TOKEN = "a".repeat(43);
+const REMOVED_RUNTIME_NAME = ["player", "web"].join("-");
+const REMOVED_RUNTIME_PACKAGE = [
+  "@pixel-point/aval",
+  REMOVED_RUNTIME_NAME
+].join("-");
 const BUILD_REPORT_BYTES = new TextEncoder().encode(
   '{"assets":[],"reportVersion":"1.0"}'
 );
@@ -189,29 +194,34 @@ describe("loopback dev server", () => {
       expect(module.status).toBe(200);
       expect(module.headers.get("content-type")).toContain("text/javascript");
       expect(await module.text()).toContain("AvalElement");
-      const workerDependency = await (await fetch(new URL("modules/player-web/decoder-worker/core-validation.js", server.url))).text();
-      expect(workerDependency).toContain(`${new URL(server.url).pathname}modules/format/index.js`);
-      expect(workerDependency).not.toContain('"@pixel-point/aval-format"');
-      const workerEntry = await fetch(new URL("modules/player-web/decoder-worker/entry.js", server.url));
-      const workerCsp = workerEntry.headers.get("content-security-policy") ?? "";
-      expect(workerCsp).toContain("default-src 'none'");
-      expect(workerCsp).toContain("script-src 'self'");
-      expect(workerCsp).toContain("worker-src 'self'");
-      expect(workerCsp).not.toMatch(/blob:|data:|unsafe-inline|unsafe-eval/u);
+      const elementDependency = await (await fetch(new URL(
+        "modules/element/codec-validator.js",
+        server.url
+      ))).text();
+      expect(elementDependency).toContain(
+        `${new URL(server.url).pathname}modules/format/index.js`
+      );
+      expect(elementDependency).not.toContain('"@pixel-point/aval-format"');
       const elementWorker = await fetch(new URL(
         "modules/element/decoder-worker.js?no-inline",
         server.url
       ));
       expect(elementWorker.status).toBe(200);
-      expect(elementWorker.headers.get("content-security-policy")).toBe(
-        workerEntry.headers.get("content-security-policy")
-      );
+      const workerCsp = elementWorker.headers.get("content-security-policy") ?? "";
+      expect(workerCsp).toContain("default-src 'none'");
+      expect(workerCsp).toContain("script-src 'self'");
+      expect(workerCsp).toContain("worker-src 'self'");
+      expect(workerCsp).not.toMatch(/blob:|data:|unsafe-inline|unsafe-eval/u);
       expect((await fetch(new URL(
         "modules/element/decoder-worker.js?no-inline=1",
         server.url
       ))).status).toBe(404);
       expect((await fetch(new URL(
-        "modules/player-web/decoder-worker/entry.js?no-inline",
+        `modules/${REMOVED_RUNTIME_NAME}/index.js`,
+        server.url
+      ))).status).toBe(404);
+      expect((await fetch(new URL(
+        `modules/${REMOVED_RUNTIME_NAME}/decoder-worker/entry.js`,
         server.url
       ))).status).toBe(404);
       const publicOrigin = new URL(server.url).origin;
@@ -261,13 +271,14 @@ describe("loopback dev server", () => {
       expect(statusOf(await rawHttp(Number(url.port), browserHeaders(url, url.pathname, "none", "navigate", "document")))).toBe(200);
       expect(await rawHttpStatus(Number(url.port), browserHeaders(url, `${url.pathname}events`, "same-origin", "cors", "empty"))).toBe(200);
       expect(await rawHttpStatus(Number(url.port), [
-        `GET ${url.pathname}modules/player-web/decoder-worker/entry.js HTTP/1.1`,
+        `GET ${url.pathname}modules/${REMOVED_RUNTIME_NAME}/decoder-worker/entry.js HTTP/1.1`,
         `Host: ${url.host}`,
+        `Origin: ${url.origin}`,
         "Sec-Fetch-Site: same-origin",
-        "Sec-Fetch-Mode: same-origin",
+        "Sec-Fetch-Mode: cors",
         "Sec-Fetch-Dest: worker",
         "Connection: close"
-      ])).toBe(200);
+      ])).toBe(404);
       expect(await rawHttpStatus(Number(url.port), [
         `GET ${url.pathname}modules/element/decoder-worker.js?no-inline HTTP/1.1`,
         `Host: ${url.host}`,
@@ -277,14 +288,14 @@ describe("loopback dev server", () => {
         "Connection: close"
       ])).toBe(200);
       expect(await rawHttpStatus(Number(url.port), [
-        `GET ${url.pathname}modules/player-web/decoder-worker/host.js HTTP/1.1`,
+        `GET ${url.pathname}modules/${REMOVED_RUNTIME_NAME}/decoder-worker/host.js HTTP/1.1`,
         `Host: ${url.host}`,
         `Origin: ${url.origin}`,
         "Sec-Fetch-Site: same-origin",
         "Sec-Fetch-Mode: cors",
         "Sec-Fetch-Dest: worker",
         "Connection: close"
-      ])).toBe(200);
+      ])).toBe(404);
       expect(statusOf(await rawHttp(Number(url.port), browserHeaders(url, `${url.pathname}events`, "cross-site", "cors", "empty")))).toBe(403);
       expect(statusOf(await rawHttp(Number(url.port), [
         `GET ${url.pathname}events HTTP/1.1`,
@@ -458,7 +469,6 @@ describe("loopback dev server", () => {
     roots.push(temporary);
     const packageNames = {
       element: "@pixel-point/aval-element",
-      "player-web": "@pixel-point/aval-player-web",
       format: "@pixel-point/aval-format",
       graph: "@pixel-point/aval-graph"
     } as const;
@@ -475,9 +485,12 @@ describe("loopback dev server", () => {
     }
     const store = await createPackageModuleStore(async (packageName) => resolutions.get(packageName)!);
     const admission = createBoundedReadAdmission(2);
-    const read = await store.read("player-web", "index.js", admission);
-    expect(read.status).toBe("ok");
-    if (read.status === "ok") expect(read.bytes.toString("utf8")).toContain("@pixel-point/aval-player-web");
+    expect(Object.keys(store.roots())).toEqual(["element", "format", "graph"]);
+    for (const [key, packageName] of Object.entries(packageNames)) {
+      const read = await store.read(key as keyof typeof packageNames, "index.js", admission);
+      expect(read.status).toBe("ok");
+      if (read.status === "ok") expect(read.bytes.toString("utf8")).toContain(packageName);
+    }
 
     const outside = join(temporary, "outside.js");
     await writeFile(outside, "throw new Error('escaped');\n");
@@ -485,8 +498,10 @@ describe("loopback dev server", () => {
     await expect(store.read("element", "escape.js", admission)).resolves.toEqual({ status: "missing" });
     await expect(store.read("element", "../outside.js", admission)).resolves.toEqual({ status: "missing" });
 
-    const compilerManifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { version?: string; dependencies?: Record<string, string> };
-    expect(compilerManifest.dependencies?.["@pixel-point/aval-player-web"]).toBe(compilerManifest.version);
+    const compilerManifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { dependencies?: Record<string, string> };
+    expect(compilerManifest.dependencies).not.toHaveProperty(
+      REMOVED_RUNTIME_PACKAGE
+    );
   });
 
   it("admits no queued reads beyond its exact concurrency bound", () => {

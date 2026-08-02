@@ -48,6 +48,33 @@ describe("public runtime trace collector", () => {
     collector.drain([underflow]);
     expect(collector.snapshot().coverage).toMatchObject({ frameCount: 0, underflows: 1 });
   });
+
+  it("collects canonical element traces without inventing animation-frame eligibility", () => {
+    const collector = new PublicRuntimeTraceCollector(10);
+    collector.drain([tick(0, 1, {
+      unit: "idle-body",
+      localFrame: 0,
+      unitInstance: 7,
+      eligibleAnimationFrameOrdinal: null
+    })]);
+
+    expect(collector.snapshot()).toMatchObject({
+      coverage: {
+        frameCount: 1,
+        underflows: 0,
+        wrongContentIdentities: 0
+      },
+      frames: [{
+        deadlineOrdinal: 1,
+        expectedContentOrdinal: 1,
+        submittedContentOrdinal: 1,
+        eligibleAnimationFrameOrdinal: null,
+        state: "idle",
+        unit: "idle-body",
+        localFrame: 0
+      }]
+    });
+  });
 });
 
 function tick(index: number, presentationOrdinal: number, options: Readonly<{
@@ -57,8 +84,9 @@ function tick(index: number, presentationOrdinal: number, options: Readonly<{
   boundary?: string;
   direction?: string;
   contentOrdinal?: number;
+  eligibleAnimationFrameOrdinal?: number | null;
 }>): Readonly<Record<string, unknown>> {
-  const contentOrdinal = options.contentOrdinal ?? presentationOrdinal - 1;
+  const contentOrdinal = options.contentOrdinal ?? presentationOrdinal;
   return Object.freeze({
     index,
     kind: "content-tick",
@@ -66,9 +94,15 @@ function tick(index: number, presentationOrdinal: number, options: Readonly<{
     rationalDeadlineUs: presentationOrdinal * 33_333,
     callbackStartMicroseconds: presentationOrdinal * 33_333 + 100,
     canvasSubmissionCompleteMicroseconds: presentationOrdinal * 33_333 + 200,
-    eligibleAnimationFrameOrdinal: presentationOrdinal * 2,
+    eligibleAnimationFrameOrdinal: options.eligibleAnimationFrameOrdinal === undefined
+      ? presentationOrdinal * 2
+      : options.eligibleAnimationFrameOrdinal,
     graph: {
-      snapshot: { contentOrdinal: String(contentOrdinal) },
+      snapshot: {
+        contentOrdinal: String(contentOrdinal),
+        visualState: "idle",
+        activeEdgeId: options.boundary ?? null
+      },
       presentation: {
         kind: options.unit === "hover-shift" ? "reversible" : "body",
         unitId: options.unit,
@@ -77,13 +111,18 @@ function tick(index: number, presentationOrdinal: number, options: Readonly<{
       }
     },
     routeReady: true,
-    selectedBoundary: options.boundary ?? null,
+    selectedBoundary: options.boundary === undefined ? null : "portal",
+    scheduler: {
+      displayedCursor: {
+        path: options.boundary ?? "idle",
+        unit: options.unit,
+        unitInstance: options.unitInstance,
+        localFrame: options.localFrame
+      }
+    },
     media: {
       kind: "frame",
-      state: "idle",
-      edge: options.boundary ?? null,
-      frame: { unit: options.unit, localFrame: options.localFrame },
-      unitInstance: options.unitInstance
+      frame: { unit: options.unit, localFrame: options.localFrame }
     },
     counters: { underflows: 0 }
   });

@@ -13,8 +13,8 @@ rebuilds packages.
 2. In the protected npm environment, read each exact `name@1.0.0` and `next`
    tag before mutation.
 3. If the version exists, continue only when integrity is exactly identical.
-4. Publish dependency order under `next`: graph, format, element, player-web,
-   compiler.
+4. Publish dependency order under `next`: graph, format, element, compiler,
+   React, Svelte.
 5. Install exact registry versions into clean consumers and run browser smoke.
 6. With a separate approval, promote all exact versions to `latest`.
 7. Preserve the publication ledger and registry verification digest.

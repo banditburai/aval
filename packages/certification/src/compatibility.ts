@@ -2,7 +2,6 @@ export const PUBLIC_RELEASE_PACKAGES = Object.freeze([
   "@pixel-point/aval-graph",
   "@pixel-point/aval-format",
   "@pixel-point/aval-element",
-  "@pixel-point/aval-player-web",
   "@pixel-point/aval-compiler",
   "@pixel-point/aval-react",
   "@pixel-point/aval-svelte"
@@ -34,9 +33,8 @@ export const PUBLIC_RELEASE_PACKAGE_CONTRACTS = Object.freeze({
     },
     sideEffects: ["./dist/auto.js"]
   }),
-  "@pixel-point/aval-player-web": releaseContract({ dependencies: ["@pixel-point/aval-graph", "@pixel-point/aval-format"] }),
   "@pixel-point/aval-compiler": releaseContract({
-    dependencies: ["@pixel-point/aval-graph", "@pixel-point/aval-format", "@pixel-point/aval-player-web", "@pixel-point/aval-element"],
+    dependencies: ["@pixel-point/aval-graph", "@pixel-point/aval-format", "@pixel-point/aval-element"],
     bin: { avl: "./dist/cli.js" }
   }),
   "@pixel-point/aval-react": releaseContract({

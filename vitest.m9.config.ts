@@ -44,9 +44,6 @@ export default defineConfig({
       "@pixel-point/aval-svelte": fileURLToPath(
         new URL("./packages/svelte/src/index.ts", import.meta.url)
       ),
-      "@pixel-point/aval-player-web": fileURLToPath(
-        new URL("./packages/player-web/src/index.ts", import.meta.url)
-      ),
       "@pixel-point/aval-element/adapter": fileURLToPath(
         new URL("./packages/element/src/adapter.ts", import.meta.url)
       ),

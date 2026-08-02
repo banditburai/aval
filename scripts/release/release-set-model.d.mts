@@ -1,7 +1,6 @@
 export type ReleasePackageName =
   | "@pixel-point/aval-graph"
   | "@pixel-point/aval-format"
-  | "@pixel-point/aval-player-web"
   | "@pixel-point/aval-element"
   | "@pixel-point/aval-compiler"
   | "@pixel-point/aval-react"

@@ -12,7 +12,6 @@ import {
 
 export const DEV_MODULE_PACKAGES = Object.freeze({
   element: "@pixel-point/aval-element",
-  "player-web": "@pixel-point/aval-player-web",
   format: "@pixel-point/aval-format",
   graph: "@pixel-point/aval-graph"
 } as const);
@@ -40,7 +39,7 @@ export interface PackageModuleStore {
 export function rewriteDevModuleImports(bytes: Buffer, sessionPath: string): Buffer {
   if (!/^\/[A-Za-z0-9_-]{43}\/$/u.test(sessionPath)) throw new TypeError("dev module session path is invalid");
   const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  const rewritten = source.replace(/(["'])@pixel-point\/aval-(element|player-web|format|graph)\1/gu, (_match, _quote: string, packageName: DevModulePackage) => JSON.stringify(`${sessionPath}modules/${packageName}/index.js`));
+  const rewritten = source.replace(/(["'])@pixel-point\/aval-(element|format|graph)\1/gu, (_match, _quote: string, packageName: DevModulePackage) => JSON.stringify(`${sessionPath}modules/${packageName}/index.js`));
   return Buffer.from(rewritten, "utf8");
 }
 

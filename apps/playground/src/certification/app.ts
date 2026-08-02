@@ -3,11 +3,6 @@ import {
   type AvalDiagnostics,
   type AvalElement
 } from "@pixel-point/aval-element";
-import {
-  DEFAULT_MAXIMUM_DECODER_LEASES,
-  DEFAULT_MAXIMUM_PAGE_PHYSICAL_BYTES,
-  DEFAULT_MAXIMUM_PLAYER_LOGICAL_BYTES
-} from "@pixel-point/aval-player-web";
 
 import { ForegroundMeasurementGuard, type MeasurementInterruption } from "./foreground-guard.js";
 import { deriveBrowserEnvironmentIdentity } from "./environment-identity.js";
@@ -16,7 +11,10 @@ import { LOCAL_NETWORK_FAULTS, runNetworkFaultStress } from "./network-fault-str
 import { createPublicMotionElement, preparePublicMotion, retirePublicMotion } from "./public-element-host.js";
 import { createReportExport, offerReportDownload, type CertificationExport } from "./report-export.js";
 import { BrowserResourceLedger } from "./resource-ledger.js";
-import { runResourceSoak } from "./resource-soak.js";
+import {
+  CERTIFICATION_RUNTIME_CAPACITY,
+  runResourceSoak
+} from "./resource-soak.js";
 import { RouteLedger } from "./route-ledger.js";
 import {
   assertRunnableForeground,
@@ -439,9 +437,7 @@ function browserCapabilities(): Readonly<Record<string, boolean | number | strin
     documentVisible: document.visibilityState === "visible",
     documentFocused: document.hasFocus(),
     devicePixelRatio: devicePixelRatio,
-    maximumDecoderLeases: DEFAULT_MAXIMUM_DECODER_LEASES,
-    maximumPagePhysicalBytes: DEFAULT_MAXIMUM_PAGE_PHYSICAL_BYTES,
-    maximumPlayerLogicalBytes: DEFAULT_MAXIMUM_PLAYER_LOGICAL_BYTES
+    ...CERTIFICATION_RUNTIME_CAPACITY
   });
 }
 
@@ -476,11 +472,7 @@ function emptySoak(durationMs: number, playerCount: number): Awaited<ReturnType<
     elapsedMs: 0,
     playerCount,
     samples: 0,
-    defaultPolicy: Object.freeze({
-      maximumDecoderLeases: DEFAULT_MAXIMUM_DECODER_LEASES,
-      maximumPagePhysicalBytes: DEFAULT_MAXIMUM_PAGE_PHYSICAL_BYTES,
-      maximumPlayerLogicalBytes: DEFAULT_MAXIMUM_PLAYER_LOGICAL_BYTES
-    }),
+    runtimeCapacity: CERTIFICATION_RUNTIME_CAPACITY,
     peakCounters: Object.freeze({}),
     terminalCounters: Object.freeze([]),
     failures: Object.freeze([])

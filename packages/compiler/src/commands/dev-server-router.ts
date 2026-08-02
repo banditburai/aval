@@ -69,8 +69,8 @@ export function createDevServerRequestHandler(options: DevServerRouterOptions): 
     }
     if (relativePath === "style.css") return writeText(response, method, "text/css; charset=utf-8", DEV_CSS);
     if (relativePath === "client.js") return writeText(response, method, "text/javascript; charset=utf-8", DEV_CLIENT);
-    const module = /^modules\/(element|player-web|format|graph)\/(.+)$/u.exec(relativePath);
-    if (module !== null) return serveModule(response, method, module[1] as "element" | "player-web" | "format" | "graph", module[2]!, isWorkerEntry(relativePath));
+    const module = /^modules\/(element|format|graph)\/(.+)$/u.exec(relativePath);
+    if (module !== null) return serveModule(response, method, module[1] as "element" | "format" | "graph", module[2]!, isWorkerEntry(relativePath));
     if (relativePath === "events") return options.eventStreams.connect(request, response, method, options.current());
     const published = options.current();
     if (relativePath === "build.json") {
@@ -117,7 +117,7 @@ export function createDevServerRequestHandler(options: DevServerRouterOptions): 
     });
   }
 
-  async function serveModule(response: ServerResponse, method: string, packageName: "element" | "player-web" | "format" | "graph", relativePath: string, workerEntry: boolean): Promise<void> {
+  async function serveModule(response: ServerResponse, method: string, packageName: "element" | "format" | "graph", relativePath: string, workerEntry: boolean): Promise<void> {
     const read = await options.modules.read(packageName, relativePath, options.moduleReads);
     if (read.status === "busy") return writeError(response, method, 503, "server-busy");
     if (read.status === "too-large") return writeError(response, method, 413, "module-too-large");

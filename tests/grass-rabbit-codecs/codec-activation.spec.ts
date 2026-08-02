@@ -88,7 +88,58 @@ test("does not filter the automatic ladder by preflight state", async ({
   expectNoBrowserFailures(failures);
 });
 
-test("keeps automatic terminal exhaustion separate from probe support", async ({
+test("stops sequential support probing after a platform rejection", async ({
+  page
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "chromium",
+    "one pinned engine is sufficient for controller probe sequencing"
+  );
+  const failures = captureBrowserFailures(page);
+  await page.addInitScript(() => {
+    const decoder = globalThis.VideoDecoder;
+    if (
+      typeof decoder !== "function" ||
+      typeof decoder.isConfigSupported !== "function"
+    ) {
+      throw new Error("VideoDecoder support probing is unavailable");
+    }
+    const calls: string[] = [];
+    Object.defineProperty(globalThis, "__codecSupportProbeCalls", {
+      configurable: true,
+      value: calls
+    });
+    Object.defineProperty(decoder, "isConfigSupported", {
+      configurable: true,
+      value: async (config: VideoDecoderConfig) => {
+        calls.push(config.codec);
+        if (calls.length === 1) return { supported: true };
+        throw new Error("forced support probe rejection");
+      }
+    });
+  });
+
+  await openExample(page);
+
+  const outcome = await page.evaluate(() => ({
+    calls: [...(globalThis as typeof globalThis & {
+      readonly __codecSupportProbeCalls: readonly string[];
+    }).__codecSupportProbeCalls],
+    support: window.grassRabbitCodecs.supportSnapshot()
+  }));
+  expect(outcome.support).toEqual({
+    av1: "supported",
+    vp9: "unavailable",
+    h265: "unavailable",
+    h264: "unavailable"
+  });
+  expect(outcome.calls).toHaveLength(2);
+  expect(outcome.calls[0]).toMatch(CODEC_PATTERNS.av1);
+  expect(outcome.calls[1]).toMatch(CODEC_PATTERNS.vp9);
+  expectNoBrowserFailures(failures);
+});
+
+test("reports decoder absence while automatic fallback exhausts authored sources", async ({
   page
 }, testInfo) => {
   test.skip(
@@ -153,8 +204,8 @@ test("keeps automatic terminal exhaustion separate from probe support", async ({
   expect(outcome.authoredCodecs.map(codecFamily)).toEqual(CODECS);
   expect(outcome.fatalCodes).toContain("unsupported-profile");
   expect(outcome.activePlayer).toBe(false);
-  expect(outcome.support.av1).toBe("supported");
-  expect(outcome.tabSupport).toBe("supported");
+  expect(outcome.support.av1).toBe("unsupported");
+  expect(outcome.tabSupport).toBe("unsupported");
   expect(outcome.runtimeError).toBe("true");
   expect(outcome.stageState).toBe("error");
   expect(outcome.message).toBe(

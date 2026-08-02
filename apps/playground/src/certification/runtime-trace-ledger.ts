@@ -1,14 +1,16 @@
 import { BrowserFrameLedger } from "./frame-ledger.js";
 
-const EDGE_PROFILES = Object.freeze({
-  "idle-hover": Object.freeze({ start: "portal", transition: "reversible", direction: "forward" }),
-  "hover-idle": Object.freeze({ start: "portal", transition: "reversible", direction: "reverse" }),
-  "idle-loading": Object.freeze({ start: "portal", transition: "locked", direction: null }),
-  "loading-done": Object.freeze({ start: "finish", transition: "none", direction: null }),
-  "loading-idle": Object.freeze({ start: "cut", transition: "none", direction: null }),
-  "done-idle": Object.freeze({ start: "portal", transition: "none", direction: null })
-} as const);
-const LOOP_UNITS = new Set(["idle-body", "hover-body"]);
+const BOUNDARY_STARTS = Object.freeze(["portal", "finish", "cut"] as const);
+const PRESENTATION_KINDS = Object.freeze([
+  "static",
+  "intro",
+  "body",
+  "locked",
+  "reversible"
+] as const);
+
+type BoundaryStart = (typeof BOUNDARY_STARTS)[number];
+type PresentationKind = (typeof PRESENTATION_KINDS)[number];
 
 export interface RuntimeTraceCoverage {
   readonly frameCount: number;
@@ -32,17 +34,16 @@ export interface RuntimeTraceCollection {
 }
 
 interface ParsedContentTick {
-  readonly index: number;
   readonly presentationOrdinal: number;
   readonly requiredContentOrdinal: number;
   readonly submittedContentOrdinal: number | null;
-  readonly deadlineMicroseconds: number;
   readonly callbackStartMicroseconds: number;
   readonly canvasSubmissionCompleteMicroseconds: number;
-  readonly eligibleAnimationFrameOrdinal: number;
-  readonly selectedBoundary: string | null;
+  readonly eligibleAnimationFrameOrdinal: number | null;
+  readonly selectedBoundary: BoundaryStart | null;
+  readonly presentationKind: PresentationKind;
   readonly state: string | null;
-  readonly edge: string | null;
+  readonly route: string | null;
   readonly unit: string;
   readonly localFrame: number;
   readonly unitInstance: number;
@@ -126,7 +127,7 @@ export class PublicRuntimeTraceCollector {
 
   #appendTick(tick: ParsedContentTick): void {
     const previous = this.#lastTick;
-    const loopBoundary = previous !== null && LOOP_UNITS.has(tick.unit) &&
+    const loopBoundary = previous !== null && tick.presentationKind === "body" &&
       previous.unit === tick.unit && (
         tick.unitInstance > previous.unitInstance || tick.localFrame < previous.localFrame
       );
@@ -134,18 +135,17 @@ export class PublicRuntimeTraceCollector {
     const newRouteBoundary = tick.selectedBoundary !== null && tick.selectedBoundary !== this.#lastSelectedBoundary;
     if (newRouteBoundary) {
       this.#routeBoundaries += 1;
-      const profile = EDGE_PROFILES[tick.selectedBoundary as keyof typeof EDGE_PROFILES];
-      if (profile === undefined) {
-        this.#routeClasses.add(`unknown:${tick.selectedBoundary}`);
-      } else {
-        this.#routeClasses.add(`${profile.start}:${profile.transition}`);
-        if (profile.start === "portal") this.#portalSelections += 1;
-      }
+      const transition = tick.presentationKind === "reversible" ||
+        tick.presentationKind === "locked"
+        ? tick.presentationKind
+        : "none";
+      this.#routeClasses.add(`${tick.selectedBoundary}:${transition}`);
+      if (tick.selectedBoundary === "portal") this.#portalSelections += 1;
     }
     if (
       previous !== null &&
       previous.unit === tick.unit &&
-      tick.unit === "hover-shift" &&
+      tick.presentationKind === "reversible" &&
       previous.direction !== null && tick.direction !== null &&
       previous.direction !== tick.direction &&
       Math.abs(previous.localFrame - tick.localFrame) <= 1
@@ -163,7 +163,7 @@ export class PublicRuntimeTraceCollector {
       canvasSubmissionCompleteMicroseconds: tick.canvasSubmissionCompleteMicroseconds,
       gpuFence: "not-used",
       state: tick.state,
-      route: tick.selectedBoundary,
+      route: tick.route,
       port: "default",
       unit: tick.unit,
       localFrame: tick.localFrame,
@@ -184,13 +184,18 @@ function parseContentTick(record: Readonly<Record<string, unknown>>): ParsedCont
   const callbackStartMicroseconds = nullableInteger(record.callbackStartMicroseconds, "trace.callbackStartMicroseconds");
   const submission = nullableInteger(record.canvasSubmissionCompleteMicroseconds, "trace.canvasSubmissionCompleteMicroseconds");
   const eligible = nullableInteger(record.eligibleAnimationFrameOrdinal, "trace.eligibleAnimationFrameOrdinal");
-  if (media === null || media.kind !== "frame" || callbackStartMicroseconds === null || submission === null || eligible === null) return null;
+  if (media === null || media.kind !== "frame" || callbackStartMicroseconds === null || submission === null) return null;
   const presentationOrdinal = decimalOrdinal(record.presentationOrdinal, "trace.presentationOrdinal");
-  const deadlineMicroseconds = integer(record.rationalDeadlineUs, "trace.rationalDeadlineUs");
+  integer(record.rationalDeadlineUs, "trace.rationalDeadlineUs");
   const graph = recordValue(record.graph, "trace.graph");
   const snapshot = recordValue(graph.snapshot, "trace.graph.snapshot");
   const graphPresentation = recordValue(graph.presentation, "trace.graph.presentation");
   const frame = recordValue(media.frame, "trace.media.frame");
+  const scheduler = recordValue(record.scheduler, "trace.scheduler");
+  const displayedCursor = recordValue(
+    scheduler.displayedCursor,
+    "trace.scheduler.displayedCursor"
+  );
   const counters = recordValue(record.counters, "trace.counters");
   const submittedContentOrdinal = snapshot.contentOrdinal === null
     ? null
@@ -199,22 +204,39 @@ function parseContentTick(record: Readonly<Record<string, unknown>>): ParsedCont
   const localFrame = integer(frame.localFrame, "trace.media.frame.localFrame");
   const graphUnit = text(graphPresentation.unitId, "trace.graph.presentation.unitId");
   const graphFrame = integer(graphPresentation.frameIndex, "trace.graph.presentation.frameIndex");
-  const graphIdentityMatched = graphUnit === unit && graphFrame === localFrame;
+  const cursorUnit = text(displayedCursor.unit, "trace.scheduler.displayedCursor.unit");
+  const cursorFrame = integer(
+    displayedCursor.localFrame,
+    "trace.scheduler.displayedCursor.localFrame"
+  );
+  const graphIdentityMatched = graphUnit === unit && graphFrame === localFrame &&
+    cursorUnit === unit && cursorFrame === localFrame;
+  const presentationKind = enumeration(
+    graphPresentation.kind,
+    PRESENTATION_KINDS,
+    "trace.graph.presentation.kind"
+  );
   return Object.freeze({
-    index: integer(record.index, "trace.index"),
     presentationOrdinal,
-    requiredContentOrdinal: presentationOrdinal - 1,
+    requiredContentOrdinal: presentationOrdinal,
     submittedContentOrdinal: graphIdentityMatched ? submittedContentOrdinal : null,
-    deadlineMicroseconds,
     callbackStartMicroseconds,
     canvasSubmissionCompleteMicroseconds: submission,
     eligibleAnimationFrameOrdinal: eligible,
-    selectedBoundary: nullableText(record.selectedBoundary, "trace.selectedBoundary"),
-    state: nullableText(media.state, "trace.media.state"),
-    edge: nullableText(media.edge, "trace.media.edge"),
+    selectedBoundary: nullableEnumeration(
+      record.selectedBoundary,
+      BOUNDARY_STARTS,
+      "trace.selectedBoundary"
+    ),
+    presentationKind,
+    state: nullableText(snapshot.visualState, "trace.graph.snapshot.visualState"),
+    route: nullableText(snapshot.activeEdgeId, "trace.graph.snapshot.activeEdgeId"),
     unit,
     localFrame,
-    unitInstance: integer(media.unitInstance, "trace.media.unitInstance"),
+    unitInstance: integer(
+      displayedCursor.unitInstance,
+      "trace.scheduler.displayedCursor.unitInstance"
+    ),
     direction: nullableText(graphPresentation.direction, "trace.graph.presentation.direction"),
     routeReady: record.routeReady === true,
     underflows: integer(counters.underflows, "trace.counters.underflows")
@@ -252,4 +274,23 @@ function text(value: unknown, name: string): string {
 
 function nullableText(value: unknown, name: string): string | null {
   return value === null || value === undefined ? null : text(value, name);
+}
+
+function enumeration<const T extends readonly string[]>(
+  value: unknown,
+  allowed: T,
+  name: string
+): T[number] {
+  if (typeof value !== "string" || !allowed.includes(value)) {
+    throw new TypeError(`${name} is invalid`);
+  }
+  return value as T[number];
+}
+
+function nullableEnumeration<const T extends readonly string[]>(
+  value: unknown,
+  allowed: T,
+  name: string
+): T[number] | null {
+  return value === null ? null : enumeration(value, allowed, name);
 }

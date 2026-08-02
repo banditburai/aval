@@ -24,18 +24,17 @@ import {
 
 const policy = { releaseVersion: "1.0.0" as const, publicPackages: RELEASE_PACKAGE_NAMES };
 
-describe("verified seven-package release set", () => {
+describe("verified six-package release set", () => {
   it("derives the one safe publication order and rejects graph drift", () => {
     expect(RELEASE_PACKAGE_NAMES).toEqual([
       "@pixel-point/aval-graph",
       "@pixel-point/aval-format",
       "@pixel-point/aval-element",
-      "@pixel-point/aval-player-web",
       "@pixel-point/aval-compiler",
       "@pixel-point/aval-react",
       "@pixel-point/aval-svelte"
     ]);
-    expect(RELEASE_PACKAGE_SPECS.map(({ directory }) => directory)).toEqual(["graph", "format", "player-web", "element", "compiler", "react", "svelte"]);
+    expect(RELEASE_PACKAGE_SPECS.map(({ directory }) => directory)).toEqual(["graph", "format", "element", "compiler", "react", "svelte"]);
     for (const specification of RELEASE_PACKAGE_SPECS) {
       expect(Object.isFrozen(specification)).toBe(true);
       expect(Object.isFrozen(specification.peerDependencies)).toBe(true);
@@ -70,7 +69,7 @@ describe("verified seven-package release set", () => {
     const manifests = RELEASE_PACKAGE_SPECS.map(({ name, dependencies }) => packageManifest(name, dependencies));
     expect(validateReleasePackageManifests(manifests).map(({ name }) => name)).toEqual(RELEASE_PACKAGE_NAMES);
     expect(() => validateReleasePackageManifests([...manifests.slice(0, -1), manifests[0]!])).toThrow(/duplicate/u);
-    expect(() => validateReleasePackageManifests(manifests.slice(0, -1))).toThrow(/exactly 7/u);
+    expect(() => validateReleasePackageManifests(manifests.slice(0, -1))).toThrow(/exactly 6/u);
     expect(() => validateReleasePackageManifests(manifests.map((manifest) => manifest.name === "@pixel-point/aval-graph"
       ? { ...manifest, dependencies: { "@pixel-point/aval-unknown": "1.0.0" } }
       : manifest))).toThrow(/exact reviewed set/u);
@@ -79,7 +78,7 @@ describe("verified seven-package release set", () => {
       : manifest))).toThrow(/must be exactly/u);
   });
 
-  it("opens and reconciles exactly seven canonical archive instances", async () => {
+  it("opens and reconciles exactly six canonical archive instances", async () => {
     const root = await mkdtemp(join(tmpdir(), "aval-release-set-"));
     try {
       for (const { name, dependencies } of RELEASE_PACKAGE_SPECS) {
@@ -94,7 +93,7 @@ describe("verified seven-package release set", () => {
       substituted.packages[0]!.sha256 = "0".repeat(64);
       await expect(loadVerifiedReleaseSet({ directory: root, policy, packageIndex: substituted })).rejects.toThrow(/does not match archive bytes/u);
       await writeFile(join(root, "extra.tgz"), Buffer.from("not a tarball"));
-      await expect(loadVerifiedReleaseSet({ directory: root, policy })).rejects.toThrow(/exactly 7/u);
+      await expect(loadVerifiedReleaseSet({ directory: root, policy })).rejects.toThrow(/exactly 6/u);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -105,7 +104,7 @@ describe("verified seven-package release set", () => {
     try {
       for (const { name, dependencies } of RELEASE_PACKAGE_SPECS) await writeFile(join(root, filename(name)), packageArchive(packageManifest(name, dependencies)));
       await writeFile(join(root, ".swapped.tgz"), packageArchive(packageManifest("@pixel-point/aval-graph", [])));
-      await expect(loadVerifiedReleaseSet({ directory: root, policy })).rejects.toThrow(/exactly 7/u);
+      await expect(loadVerifiedReleaseSet({ directory: root, policy })).rejects.toThrow(/exactly 6/u);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -121,7 +120,7 @@ describe("verified seven-package release set", () => {
           await symlink("outside.tgz", join(root, filename(name)));
         } else await writeFile(join(root, filename(name)), archive);
       }
-      await expect(loadVerifiedReleaseSet({ directory: root, policy })).rejects.toThrow(/non-tarball|exactly 7|symbolic/u);
+      await expect(loadVerifiedReleaseSet({ directory: root, policy })).rejects.toThrow(/non-tarball|exactly 6|symbolic/u);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -204,8 +203,7 @@ describe("bounded tar inspection", () => {
     const compiler = packageManifest("@pixel-point/aval-compiler", [
       "@pixel-point/aval-graph",
       "@pixel-point/aval-format",
-      "@pixel-point/aval-element",
-      "@pixel-point/aval-player-web"
+      "@pixel-point/aval-element"
     ]);
     const inspected = inspectTarballBytes(tarGzip(baseEntries(compiler)));
     expect(inspected.files).toContain(`dist/${COMPILER_WORKER_REGISTRY_ENTRY.output}`);
@@ -350,7 +348,6 @@ function baseEntries(manifest: TestManifest): TarEntry[] {
       bytes: Buffer.from(COMPILER_WORKER_REGISTRY_ENTRY.contents)
     }
   );
-  if (manifest.name === "@pixel-point/aval-player-web") entries.push({ path: "package/dist/decoder-worker/entry.js", bytes: Buffer.from("export {};\n") });
   if (manifest.name === "@pixel-point/aval-element") entries.push(
     { path: "package/dist/auto.js", bytes: Buffer.from("export {};\n") },
     { path: "package/dist/auto.d.ts", bytes: Buffer.from("export {};\n") },

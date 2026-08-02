@@ -5,7 +5,7 @@ export interface BrowserFrameLedgerEntry {
   readonly boundary: boolean;
   readonly eventAvailableBeforeCutoff: boolean;
   readonly framePreparedBeforeCutoff: boolean;
-  readonly eligibleAnimationFrameOrdinal: number;
+  readonly eligibleAnimationFrameOrdinal: number | null;
   readonly callbackStartMicroseconds: number;
   readonly canvasSubmissionCompleteMicroseconds: number;
   readonly gpuFence: "not-supported" | "not-used" | "completed" | "failed";
@@ -31,9 +31,15 @@ export class BrowserFrameLedger {
   public append(input: BrowserFrameLedgerEntry): void {
     if (this.#entries.length >= this.#limit) throw new RangeError("frame ledger limit exceeded");
     for (const field of [
-      "deadlineOrdinal", "expectedContentOrdinal", "eligibleAnimationFrameOrdinal",
+      "deadlineOrdinal", "expectedContentOrdinal",
       "callbackStartMicroseconds", "canvasSubmissionCompleteMicroseconds"
     ] as const) nonnegativeInteger(input[field], field);
+    if (input.eligibleAnimationFrameOrdinal !== null) {
+      nonnegativeInteger(
+        input.eligibleAnimationFrameOrdinal,
+        "eligibleAnimationFrameOrdinal"
+      );
+    }
     if (input.submittedContentOrdinal !== null) nonnegativeInteger(input.submittedContentOrdinal, "submittedContentOrdinal");
     if (input.localFrame !== null) nonnegativeInteger(input.localFrame, "localFrame");
     if (input.canvasSubmissionCompleteMicroseconds < input.callbackStartMicroseconds) {

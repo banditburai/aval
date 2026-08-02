@@ -31,14 +31,6 @@ export const RELEASE_PACKAGE_SPECS = Object.freeze([
     buildInfo: "format.tsbuildinfo"
   }),
   packageSpec({
-    name: "@pixel-point/aval-player-web",
-    directory: "player-web",
-    dependencies: ["@pixel-point/aval-graph", "@pixel-point/aval-format"],
-    productionEntries: [{ export: ".", requiredInGraph: true }],
-    buildConfig: typescriptBuild({ config: "tsconfig.release.json" }),
-    buildInfo: "player-web.release.tsbuildinfo"
-  }),
-  packageSpec({
     name: "@pixel-point/aval-element",
     directory: "element",
     dependencies: ["@pixel-point/aval-graph", "@pixel-point/aval-format"],
@@ -68,7 +60,7 @@ export const RELEASE_PACKAGE_SPECS = Object.freeze([
   packageSpec({
     name: "@pixel-point/aval-compiler",
     directory: "compiler",
-    dependencies: ["@pixel-point/aval-graph", "@pixel-point/aval-format", "@pixel-point/aval-player-web", "@pixel-point/aval-element"],
+    dependencies: ["@pixel-point/aval-graph", "@pixel-point/aval-format", "@pixel-point/aval-element"],
     bin: { avl: "./dist/cli.js" },
     productionEntries: [],
     buildConfig: typescriptBuild({

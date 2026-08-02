@@ -15,9 +15,6 @@ export default defineConfig({
       "@pixel-point/aval-graph": fileURLToPath(
         new URL("../../packages/graph/src/index.ts", import.meta.url)
       ),
-      "@pixel-point/aval-player-web": fileURLToPath(
-        new URL("../../packages/player-web/src/index.ts", import.meta.url)
-      ),
       "@pixel-point/aval-element/auto": fileURLToPath(
         new URL("../../packages/element/src/auto.ts", import.meta.url)
       ),

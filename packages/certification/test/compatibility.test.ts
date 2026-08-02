@@ -15,7 +15,7 @@ describe("compatibility policy", () => {
     expect(validateSynchronizedReleaseSet(manifests.map((manifest) => manifest.name === "@pixel-point/aval-graph" ? { ...manifest, dependencies: { "@pixel-point/aval-unknown": "1.0.0" } } : manifest))).toContain("@pixel-point/aval-graph: internal dependencies must be exactly none");
     expect(validateSynchronizedReleaseSet(manifests.map((manifest) => manifest.name === "@pixel-point/aval-react" ? { ...manifest, peerDependencies: { react: "^19.0.0" } } : manifest))).toContain("@pixel-point/aval-react: peer dependencies must match the reviewed public contract");
     expect(validateSynchronizedReleaseSet(manifests.map((manifest) => manifest.name === "@pixel-point/aval-svelte" ? { ...manifest, peerDependencies: { svelte: "^4.0.0" } } : manifest))).toContain("@pixel-point/aval-svelte: peer dependencies must match the reviewed public contract");
-    expect(validateSynchronizedReleaseSet([...manifests, manifests[0]!])).toEqual(expect.arrayContaining([expect.stringMatching(/exactly 7/u), "@pixel-point/aval-graph: duplicate manifest"]));
+    expect(validateSynchronizedReleaseSet([...manifests, manifests[0]!])).toEqual(expect.arrayContaining([expect.stringMatching(/exactly 6/u), "@pixel-point/aval-graph: duplicate manifest"]));
   });
 
   it("keeps every package-specific publication field exact and immutable", () => {
