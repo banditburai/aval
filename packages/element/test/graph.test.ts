@@ -12,7 +12,7 @@ import type {
   Edge,
   Unit
 } from "@pixel-point/aval-format";
-import { createGraphEngine } from "../src/graph.js";
+import { createGraphDefinition, createGraphEngine } from "../src/graph.js";
 
 type GraphManifest = Pick<
   Manifest,
@@ -100,6 +100,32 @@ describe("graph adapter", () => {
       engine.tick({ contentOrdinal: 0n }));
     same(actualCompletion, canonicalCompletion, (engine) =>
       engine.tick({ contentOrdinal: 1n, routeReady: false }));
+  });
+
+  it("publishes a deeply immutable graph definition", () => {
+    const graph = createGraphDefinition(
+      testManifest(reversibleGraph(true)),
+      "idle",
+      false
+    );
+    const state = graph.states[0]!;
+    const port = state.body.ports[0]!;
+    const edge = graph.edges[0]!;
+
+    expect([
+      graph,
+      graph.states,
+      state,
+      state.body,
+      state.body.ports,
+      port,
+      port.portalFrames,
+      graph.edges,
+      edge,
+      edge.start,
+      edge.trigger,
+      edge.transition
+    ].every((value) => Object.isFrozen(value))).toBe(true);
   });
 });
 

@@ -647,7 +647,7 @@ export class ElementRuntimeSession {
   async #generationFailed(error: unknown, generation: number,
     token: number): Promise<never> {
     if (!this.#current(generation, token)) throw elementAbortError();
-    if (isElementAbort(error)) throw error;
+    const aborted = isElementAbort(error);
     const playback = error instanceof AvalPlaybackError ? error : null;
     const timedOut = isElementPreparationTimeout(error);
     try {
@@ -663,6 +663,7 @@ export class ElementRuntimeSession {
       );
     }
     if (!this.#generationCurrent(generation, token)) throw elementAbortError();
+    if (aborted) throw error;
     if (playback !== null) throw playback;
     throw this.#publishTerminalFailure(
       timedOut ? "watchdog-timeout" : "readiness-failure",

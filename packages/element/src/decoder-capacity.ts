@@ -1,6 +1,7 @@
 import { DECODER_RING_SIZE } from "./decoder-protocol.js";
 
 export const ELEMENT_DECODER_LANE_IDS = Object.freeze([0, 1] as const);
+export type DecoderLaneId = (typeof ELEMENT_DECODER_LANE_IDS)[number];
 const CANDIDATE_READY_FRAMES = 6 as const;
 
 /** Canonical physical decoder capacity for one animated AVAL element. */

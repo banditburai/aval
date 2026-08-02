@@ -10,7 +10,12 @@ import {
   type ElementRuntimeModule,
   type ElementRuntimeSessionInput
 } from "../src/element-runtime-session.js";
-import type { PlayerInput, Source } from "../src/player-contract.js";
+import type {
+  Player,
+  PlayerInput,
+  PlayerSnapshot,
+  Source
+} from "../src/player-contract.js";
 import type {
   AvalPublicFailure,
   AvalSnapshot,
@@ -76,6 +81,32 @@ describe("ElementRuntimeSession", () => {
       pendingOperationCount: 0
     });
   });
+
+  it("retires an accepted candidate before a current generation abort escapes", async () => {
+    const harness = createHarness([source()]);
+    const candidate = provisionalPlayer();
+    const createPlayer = vi.fn(async (
+      input: Readonly<PlayerInput>
+    ): Promise<Player> => {
+      await input.onCandidate?.(candidate.player);
+      throw new DOMException("synthetic startup invalidation", "AbortError");
+    });
+    harness.loader.mockResolvedValue(Object.freeze({ createPlayer }));
+    const session = new ElementRuntimeSession(harness.input, harness.loader);
+
+    await expect(session.prepare()).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(createPlayer).toHaveBeenCalledTimes(1);
+    expect(candidate.dispose).toHaveBeenCalledTimes(1);
+    expect(candidate.settled).toHaveBeenCalledTimes(1);
+    expect(candidate.publish).not.toHaveBeenCalled();
+    expect(harness.releaseAll).toHaveBeenCalled();
+    expect(session.snapshot(false)).toMatchObject({
+      runtime: null,
+      runtimeIsActive: false,
+      pendingOperationCount: 0
+    });
+  });
 });
 
 function createHarness(
@@ -92,6 +123,7 @@ function createHarness(
     sourceCleanupCompleted: boolean,
     sessionPending: number
   ) => boolean>>;
+  releaseAll: ReturnType<typeof vi.fn<() => void>>;
 }> {
   const { document, view } = createElementTestRealm();
   let publicSnapshot = initialSnapshot();
@@ -103,6 +135,7 @@ function createHarness(
     Object.freeze({ createPlayer });
   const loader = vi.fn(implementation ?? defaultLoader);
   const disposalCompleted = vi.fn((_source, _pending) => true);
+  const releaseAll = vi.fn();
   const readSnapshot = (): Readonly<ElementRuntimeReadSnapshot> => Object.freeze({
     publicSnapshot,
     view: view as unknown as Window,
@@ -192,7 +225,7 @@ function createHarness(
       animationResourcesRetired: () => undefined,
       cancelDecoderTicket: () => undefined,
       setVisible: () => undefined,
-      releaseAll: () => undefined,
+      releaseAll,
       snapshot: emptyPageSnapshot
     })
   });
@@ -201,7 +234,131 @@ function createHarness(
     loader,
     createPlayer,
     diagnostics,
-    disposalCompleted
+    disposalCompleted,
+    releaseAll
+  });
+}
+
+function provisionalPlayer(): Readonly<{
+  player: Player;
+  dispose: ReturnType<typeof vi.fn<() => Promise<void>>>;
+  settled: ReturnType<typeof vi.fn<() => Promise<void>>>;
+  publish: ReturnType<typeof vi.fn<() => void>>;
+}> {
+  let disposed = false;
+  const dispose = vi.fn(async () => { disposed = true; });
+  const settled = vi.fn(async () => undefined);
+  const publish = vi.fn();
+  const metadata: Player["metadata"] = Object.freeze({
+    initialState: "idle",
+    stateNames: Object.freeze(["idle"]),
+    eventNames: Object.freeze([]),
+    bindings: Object.freeze([]),
+    canvas: Object.freeze({
+      width: 16,
+      height: 16,
+      pixelAspect: Object.freeze([1, 1] as const),
+      fit: "contain"
+    })
+  });
+  const player: Player = Object.freeze({
+    metadata,
+    activate: () => undefined,
+    publish,
+    prepare: async () => animatedResult(),
+    setState: async () => undefined,
+    canSend: () => false,
+    send: () => false,
+    readyFor: () => true,
+    pause: () => undefined,
+    resume: async () => undefined,
+    setMotion: async () => undefined,
+    suspend: async () => suspendedResult(),
+    setVisibility: () => undefined,
+    resize: () => undefined,
+    snapshot: () => playerSnapshot(disposed),
+    settled,
+    dispose
+  });
+  return Object.freeze({ player, dispose, settled, publish });
+}
+
+function playerSnapshot(disposed: boolean): Readonly<PlayerSnapshot> {
+  return Object.freeze({
+    requestedState: disposed ? null : "idle",
+    visualState: disposed ? null : "idle",
+    transitioning: false,
+    selectedRendition: disposed ? null : "main",
+    selectedCodec: disposed ? null : "avc1.42E01E",
+    rendererBackend: disposed ? null : "webgl2",
+    selectedBitDepth: disposed ? null : 8,
+    transportMode: disposed ? null : "range",
+    declaredFileBytes: disposed ? 0 : 1_024,
+    metadataBytes: disposed ? 0 : 128,
+    verifiedBytes: 0,
+    residentBlobBytes: 0,
+    activeTransportBodies: 0,
+    pendingLoads: 0,
+    interestedWaiters: 0,
+    workerCount: 0,
+    openFrames: 0,
+    contextLossCount: 0,
+    contextRecoveryCount: 0,
+    playbackLifecycle: Object.freeze({
+      outputsAccepted: 0,
+      drawsCompleted: 0,
+      logicalRunsCreated: 0,
+      candidateCommits: 0,
+      runsClosed: 0,
+      transitionStarts: 0,
+      transitionEnds: 0,
+      loopCrossings: 0,
+      nativeDecoderCreatesByLane: Object.freeze([0, 0] as const),
+      nativeDecoderClosesByLane: Object.freeze([0, 0] as const)
+    }),
+    decoderDiagnostics: Object.freeze([]),
+    rendererDiagnostics: Object.freeze([]),
+    presentation: Object.freeze({
+      cssWidth: disposed ? 0 : 16,
+      cssHeight: disposed ? 0 : 16,
+      backingWidth: disposed ? 0 : 16,
+      backingHeight: disposed ? 0 : 16,
+      effectiveDprX: disposed ? 0 : 1,
+      effectiveDprY: disposed ? 0 : 1,
+      stagingBytes: 0,
+      residentBytes: 0,
+      textureBytes: 0,
+      runtimeBytes: 0,
+      pendingOperations: 0,
+      sourceCopiesInFlight: 0,
+      resourceCount: 0,
+      contextListenerCount: 0
+    }),
+    trace: Object.freeze([])
+  });
+}
+
+function animatedResult() {
+  return Object.freeze({
+    mode: "animated" as const,
+    assurance: "best-effort" as const,
+    report: Object.freeze({
+      readiness: "interactiveReady" as const,
+      selectedRendition: "main",
+      candidates: Object.freeze([])
+    })
+  });
+}
+
+function suspendedResult() {
+  return Object.freeze({
+    mode: "static" as const,
+    reason: "visibility-suspended" as const,
+    report: Object.freeze({
+      readiness: "staticReady" as const,
+      selectedRendition: null,
+      candidates: Object.freeze([])
+    })
   });
 }
 

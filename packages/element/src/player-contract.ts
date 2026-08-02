@@ -1,15 +1,17 @@
 import type {
   AvalPlaybackLifecycleCounters,
   AvalRuntimeTraceRecord,
+  AvalSourceCodec,
   Binding,
   RuntimeFailureCode,
-  RuntimeReadinessResult
+  RuntimeReadiness,
+  RuntimeReadinessResult,
+  StaticReason
 } from "./public-types.js";
 import type { AvalPlaybackError } from "./errors.js";
 import type { DecoderFailureDiagnostic } from "./decoder-diagnostics.js";
-import type { DecoderPoolLaneId } from "./decoder-pool.js";
+import type { DecoderLaneId } from "./decoder-capacity.js";
 import type { RendererFailureDiagnostic } from "./renderer-diagnostics.js";
-import type { AvalSourceCodec } from "./public-types.js";
 
 export interface Source {
   readonly src: string;
@@ -37,7 +39,7 @@ export interface PlayerDecoderDiagnostic extends DecoderFailureDiagnostic {
   readonly rendition: string;
   readonly codec: string;
   readonly unit: string | null;
-  readonly lane: DecoderPoolLaneId;
+  readonly lane: DecoderLaneId;
   readonly logicalRunId: number | null;
   readonly role: "foreground" | "candidate" | null;
   readonly graph: Readonly<{
@@ -156,7 +158,10 @@ export interface PlayerInput {
   readonly onCandidate?: (player: Player) => Promise<void>;
   readonly onResourceBytes: (bytes: number) => void;
   readonly onMetadata: (metadata: Readonly<Metadata>) => void;
-  readonly onReadiness: (value: string, reason?: string) => void;
+  readonly onReadiness: (
+    value: RuntimeReadiness,
+    reason?: StaticReason
+  ) => void;
   /** Called only after every animated resource from the retired generation is gone. */
   readonly onAnimationResourcesRetired: () => void;
   readonly onDraw: () => void;
@@ -178,4 +183,11 @@ export interface PlayerInput {
   readonly onRendererDiagnostics?: (
     diagnostics: readonly Readonly<PlayerRendererDiagnostic>[]
   ) => void;
+}
+
+export function reducedMotionSelected(
+  policy: PlayerInput["motion"],
+  hostReducedMotion: boolean
+): boolean {
+  return policy === "reduce" || policy === "auto" && hostReducedMotion;
 }

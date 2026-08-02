@@ -43,7 +43,10 @@ export class PublicationGate {
       onResourceBytes: (bytes: number) => target.onResourceBytes(bytes),
       onMetadata: (metadata: Readonly<Metadata>) =>
         publish(() => target.onMetadata(metadata)),
-      onReadiness: (value: string, reason?: string) => publish(
+      onReadiness: (
+        value: Parameters<PlayerInput["onReadiness"]>[0],
+        reason?: Parameters<PlayerInput["onReadiness"]>[1]
+      ) => publish(
         () => target.onReadiness(value, reason),
         value === "visualReady" || value === "interactiveReady"
           ? "animated-readiness"

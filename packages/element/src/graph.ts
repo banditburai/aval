@@ -1,5 +1,6 @@
 import {
   MotionGraphEngine,
+  type GraphPresentation,
   type GraphEdgeDefinition,
   type GraphStateDefinition,
   type GraphTransitionDefinition,
@@ -28,11 +29,26 @@ export function createGraphEngine(
   initialBody = false
 ): MotionGraphEngine {
   const engine = new MotionGraphEngine();
-  engine.install(toGraphDefinition(manifest, initialState, initialBody));
+  engine.install(createGraphDefinition(manifest, initialState, initialBody));
   return engine;
 }
 
-function toGraphDefinition(
+export function graphLoopCrossed(
+  before: Readonly<GraphPresentation> | null,
+  after: Readonly<GraphPresentation> | null,
+  graph: Readonly<MotionGraphDefinition>
+): boolean {
+  if (
+    before?.kind !== "body" || after?.kind !== "body" ||
+    before.state !== after.state || before.unitId !== after.unitId ||
+    after.frameIndex !== 0
+  ) return false;
+  const unit = graph.states.find(({ id }) => id === after.state)?.body;
+  return unit?.unitId === after.unitId && unit.kind === "loop" &&
+    before.frameIndex === unit.frameCount - 1;
+}
+
+export function createGraphDefinition(
   manifest: Readonly<GraphManifest>,
   initialState: string,
   initialBody: boolean
@@ -43,27 +59,33 @@ function toGraphDefinition(
   }
   const states = manifest.states.map((state): GraphStateDefinition => {
     const body = bodyUnit(units, state.bodyUnit);
-    const base: GraphStateDefinition = {
+    const base: GraphStateDefinition = Object.freeze({
       id: state.id,
-      body: {
+      body: Object.freeze({
         unitId: body.id,
         kind: body.playback,
         frameCount: body.frameCount,
-        ports: body.ports
-      }
-    };
+        ports: Object.freeze(body.ports.map((port) => Object.freeze({
+          ...port,
+          portalFrames: Object.freeze([...port.portalFrames])
+        })))
+      })
+    });
     if (initialBody || state.id !== initialState || state.initialUnit === undefined) return base;
     const intro = unit(units, state.initialUnit);
-    return {
+    return Object.freeze({
       ...base,
-      initialUnit: { unitId: intro.id, frameCount: intro.frameCount }
-    };
+      initialUnit: Object.freeze({
+        unitId: intro.id,
+        frameCount: intro.frameCount
+      })
+    });
   });
-  return {
+  return Object.freeze({
     initialState,
-    states,
-    edges: manifest.edges.map((edge) => graphEdge(edge, units))
-  };
+    states: Object.freeze(states),
+    edges: Object.freeze(manifest.edges.map((edge) => graphEdge(edge, units)))
+  });
 }
 
 function graphEdge(
@@ -74,13 +96,15 @@ function graphEdge(
     id: edge.id,
     from: edge.from,
     to: edge.to,
-    ...(edge.trigger === undefined ? {} : { trigger: edge.trigger }),
-    start: edge.start,
+    ...(edge.trigger === undefined
+      ? {}
+      : { trigger: Object.freeze({ ...edge.trigger }) }),
+    start: Object.freeze({ ...edge.start }),
     continuity: edge.continuity
   };
-  return edge.transition === undefined
+  return Object.freeze(edge.transition === undefined
     ? common
-    : { ...common, transition: graphTransition(edge.transition, units) };
+    : { ...common, transition: graphTransition(edge.transition, units) });
 }
 
 function graphTransition(
@@ -89,9 +113,13 @@ function graphTransition(
 ): GraphTransitionDefinition {
   const media = unit(units, transition.unit);
   if (transition.kind === "locked") {
-    return { kind: "locked", unitId: media.id, frameCount: media.frameCount };
+    return Object.freeze({
+      kind: "locked",
+      unitId: media.id,
+      frameCount: media.frameCount
+    });
   }
-  return {
+  return Object.freeze({
     kind: "reversible",
     unitId: media.id,
     frameCount: media.frameCount,
@@ -99,7 +127,7 @@ function graphTransition(
     ...(transition.reverseOf === undefined
       ? {}
       : { reverseOf: transition.reverseOf })
-  };
+  });
 }
 
 function bodyUnit(

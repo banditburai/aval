@@ -6,7 +6,8 @@ import {
   type DecodeRun,
   type DecodeSample
 } from "./decoder.js";
-import { ELEMENT_DECODER_LANE_IDS } from "./decoder-capacity.js";
+import { ELEMENT_DECODER_LANE_IDS, type DecoderLaneId } from
+  "./decoder-capacity.js";
 import type { DecoderFailureDiagnostic } from "./decoder-diagnostics.js";
 import {
   freezePlaybackLifecycleCounters,
@@ -16,10 +17,8 @@ import type { AvalPlaybackLifecycleCounters } from "./public-types.js";
 
 const MAX_BYTES = Number.MAX_SAFE_INTEGER;
 
-export type DecoderPoolLaneId = (typeof ELEMENT_DECODER_LANE_IDS)[number];
-
 interface DecoderPoolLane {
-  readonly id: DecoderPoolLaneId;
+  readonly id: DecoderLaneId;
   readonly decoder: Decoder;
 }
 
@@ -29,11 +28,11 @@ interface RunOwnership {
 
 export interface DecoderPoolRunIdentity {
   readonly logicalId: number;
-  readonly lane: DecoderPoolLaneId;
+  readonly lane: DecoderLaneId;
 }
 
 export interface DecoderPoolDiagnostic extends DecoderFailureDiagnostic {
-  readonly lane: DecoderPoolLaneId;
+  readonly lane: DecoderLaneId;
   readonly logicalRunId: number | null;
   readonly role: "foreground" | "candidate" | null;
 }
@@ -303,7 +302,7 @@ export class DecoderPool {
   }
 
   #createDecoder(
-    lane: DecoderPoolLaneId,
+    lane: DecoderLaneId,
     config: Readonly<VideoDecoderConfig>,
     expectation: Readonly<DecoderOutputExpectation>,
     limits: Readonly<DecoderLimits>
@@ -357,7 +356,7 @@ export class DecoderPool {
   }
 
   #diagnosticContext(
-    lane: DecoderPoolLaneId,
+    lane: DecoderLaneId,
     physicalRun: number | null
   ): Readonly<{
     logicalRunId: number;
@@ -398,7 +397,7 @@ export class DecoderPool {
 
   #updateBytes(
     values: [number, number],
-    lane: DecoderPoolLaneId,
+    lane: DecoderLaneId,
     bytes: number,
     kind: "decoded" | "encoded",
     maximum: number,

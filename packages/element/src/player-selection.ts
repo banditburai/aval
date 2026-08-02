@@ -1,4 +1,4 @@
-import type { Player, PlayerDecoderDiagnostic } from "./player-contract.js";
+import type { PlayerDecoderDiagnostic } from "./player-contract.js";
 import {
   candidateReasonFailureCode,
   candidateRejectionFailureCode,
@@ -8,61 +8,23 @@ import {
   type CandidateReport
 } from "./player-failures.js";
 import { PublicationGate } from "./player-publication-gate.js";
-import type { PreparationDeadline } from "./preparation-deadline.js";
 import type { RetryableCandidateRejection } from
   "./provisional-candidate-outcome.js";
+import { mergePlayerDecoderDiagnostics } from
+  "./player-diagnostic-retention.js";
 import type { RuntimeFailureCode } from "./public-types.js";
+import type {
+  PlayerCandidateProbe,
+  ProvisionalPlayerCandidate
+} from "./player-candidate-contract.js";
 
-const MAX_RETAINED_DECODER_DIAGNOSTICS = 16;
-
-export interface PlayerCandidateHandle extends Player {
-  adoptPreparationParent(parent: PreparationDeadline): void;
-  provisionalFailure(): unknown;
-  completeCandidateInstallation(): void;
-  failCandidateInstallation(reason: unknown): void;
-}
-
-export interface ProvisionalPlayerCandidate {
-  readonly player: PlayerCandidateHandle;
-  readonly candidateRank: number;
-  readonly renditionId: string;
-  readonly requiresQualification: boolean;
-  readonly publications: PublicationGate;
-}
-
-export interface PlayerCandidateProbeInput {
-  readonly sourceInputIndex: number;
-  readonly renditionIndex: number;
-  readonly candidateRank: number;
-  readonly publications: PublicationGate;
-  readonly candidateReports: readonly Readonly<CandidateReport>[];
-  readonly decoderDiagnostics: readonly Readonly<PlayerDecoderDiagnostic>[];
-}
-
-export type PlayerCandidateProbeResult =
-  | Readonly<{
-      kind: "candidate";
-      player: PlayerCandidateHandle;
-      renditionId: string;
-      requiresQualification: boolean;
-      renditionCount: number;
-    }>
-  | Readonly<{
-      kind: "rendition-rejected";
-      renditionId: string;
-      renditionCount: number;
-      reason: CandidateRejectionReason;
-      decoderDiagnostics: readonly Readonly<PlayerDecoderDiagnostic>[];
-    }>
-  | Readonly<{
-      kind: "source-rejected";
-      reason: CandidateRejectionReason;
-    }>;
-
-/** Creates or probes only the source/rendition requested by the selector. */
-export type PlayerCandidateProbe = (
-  input: Readonly<PlayerCandidateProbeInput>
-) => Promise<Readonly<PlayerCandidateProbeResult>>;
+export type {
+  PlayerCandidateHandle,
+  PlayerCandidateProbe,
+  PlayerCandidateProbeInput,
+  PlayerCandidateProbeResult,
+  ProvisionalPlayerCandidate
+} from "./player-candidate-contract.js";
 
 export class PlayerCandidateSelector {
   readonly #sourceCount: number;
@@ -182,28 +144,4 @@ export class PlayerCandidateSelector {
     this.#sourceInputIndex += 1;
     this.#renditionIndex = 0;
   }
-}
-
-export function mergePlayerDecoderDiagnostics(
-  current: readonly Readonly<PlayerDecoderDiagnostic>[],
-  incoming: readonly Readonly<PlayerDecoderDiagnostic>[]
-): readonly Readonly<PlayerDecoderDiagnostic>[] {
-  if (incoming.length === 0) return current;
-  const bySourceLane = new Map<string, Readonly<PlayerDecoderDiagnostic>>(
-    current.map((diagnostic) => [
-      `${String(diagnostic.sourceIndex)}:${String(diagnostic.lane)}`,
-      diagnostic
-    ] as const)
-  );
-  for (const diagnostic of incoming) {
-    const key = `${String(diagnostic.sourceIndex)}:${String(diagnostic.lane)}`;
-    if (!bySourceLane.has(key)) bySourceLane.set(key, diagnostic);
-  }
-  return Object.freeze(
-    [...bySourceLane.values()]
-      .sort((left, right) =>
-        left.sourceIndex - right.sourceIndex || left.lane - right.lane
-      )
-      .slice(-MAX_RETAINED_DECODER_DIAGNOSTICS)
-  );
 }
