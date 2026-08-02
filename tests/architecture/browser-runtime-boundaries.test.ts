@@ -123,6 +123,93 @@ describe("browser runtime architecture", () => {
     );
   });
 
+  it.each([
+    Object.freeze({
+      sourceFile: "player-session.ts",
+      label: "player session owner source"
+    }),
+    Object.freeze({
+      sourceFile: "player-media-runtime.ts",
+      label: "player media owner source"
+    }),
+    Object.freeze({
+      sourceFile: "element-runtime-session.ts",
+      label: "element runtime session owner source"
+    })
+  ])("requires the $label", async ({ sourceFile, label }) => {
+    const root = await architectureFixture();
+    await rm(join(root, "packages", "element", "src", sourceFile));
+
+    await expect(checkBrowserRuntimeBoundaries(root)).rejects.toThrow(
+      `${label} is missing: packages/element/src/${sourceFile}`
+    );
+  });
+
+  it.each([
+    Object.freeze({ sourceFile: "player.ts", lines: 201, cap: 200 }),
+    Object.freeze({ sourceFile: "aval-element.ts", lines: 801, cap: 800 }),
+    Object.freeze({ sourceFile: "player-session.ts", lines: 1_001, cap: 1_000 }),
+    Object.freeze({ sourceFile: "player-selection.ts", lines: 501, cap: 500 }),
+    Object.freeze({ sourceFile: "element-input-binding.ts", lines: 1_001, cap: 1_000 })
+  ])(
+    "rejects $sourceFile above its reviewed size cap",
+    async ({ sourceFile, lines, cap }) => {
+      const root = await architectureFixture();
+      await writePackageSource(
+        root,
+        "element",
+        `src/${sourceFile}`,
+        "\n".repeat(lines)
+      );
+
+      await expect(checkBrowserRuntimeBoundaries(root)).rejects.toThrow(
+        `packages/element/src/${sourceFile}: ${lines} lines exceeds reviewed cap ${cap}`
+      );
+    }
+  );
+
+  it.each(["PlayerContext", "ElementContext", "RuntimeContext"])(
+    "rejects the generic %s owner name",
+    async (name) => {
+      const root = await architectureFixture();
+      await writePackageSource(
+        root,
+        "element",
+        "src/player-forbidden-owner.ts",
+        `interface ${name} { readonly value: string; }\n`
+      );
+
+      await expect(checkBrowserRuntimeBoundaries(root)).rejects.toThrow(
+        `forbidden generic owner declaration ${name}`
+      );
+    }
+  );
+
+  it.each([
+    Object.freeze({
+      source: "interface PlayerSessionInput { [name: string]: unknown; }\n",
+      expected: "PlayerSessionInput must not use a string index signature"
+    }),
+    Object.freeze({
+      source: "interface PlayerSessionInput { readonly services: Readonly<Record<string, unknown>>; }\n",
+      expected: "PlayerSessionInput properties must not use Record<string, unknown> owner bags"
+    }),
+    Object.freeze({
+      source: "class Owner { constructor(input: Record<string, unknown>) { void input; } }\n",
+      expected: "constructor parameters must not use Record<string, unknown> owner bags"
+    })
+  ])("rejects a generic constructor/input bag", async ({ source, expected }) => {
+    const root = await architectureFixture();
+    await writePackageSource(
+      root,
+      "element",
+      "src/player-forbidden-owner.ts",
+      source
+    );
+
+    await expect(checkBrowserRuntimeBoundaries(root)).rejects.toThrow(expected);
+  });
+
   it.each(["react", "svelte"] as const)(
     "requires the %s wrapper to depend only on element",
     async (wrapper) => {
@@ -506,6 +593,9 @@ async function architectureFixture(): Promise<string> {
   await Promise.all([
     writeFile(join(elementSource, "aval-element.ts"), "export {};\n"),
     writeFile(join(elementSource, "player.ts"), "export {};\n"),
+    writeFile(join(elementSource, "player-session.ts"), "export {};\n"),
+    writeFile(join(elementSource, "player-media-runtime.ts"), "export {};\n"),
+    writeFile(join(elementSource, "element-runtime-session.ts"), "export {};\n"),
     writeFile(join(elementSource, "adapter.ts"), CANONICAL_ADAPTER_SOURCE),
     writePackageSource(
       root,

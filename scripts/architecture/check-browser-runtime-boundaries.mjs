@@ -157,7 +157,35 @@ const REQUIRED_ELEMENT_SOURCES = Object.freeze([
   Object.freeze({
     path: ADAPTER_SOURCE_PATH,
     label: "canonical element adapter source"
+  }),
+  Object.freeze({
+    path: "packages/element/src/player-session.ts",
+    label: "player session owner source"
+  }),
+  Object.freeze({
+    path: "packages/element/src/player-media-runtime.ts",
+    label: "player media owner source"
+  }),
+  Object.freeze({
+    path: "packages/element/src/element-runtime-session.ts",
+    label: "element runtime session owner source"
   })
+]);
+
+const FACADE_SIZE_LIMITS = Object.freeze(new Map([
+  ["packages/element/src/aval-element.ts", 800],
+  ["packages/element/src/player.ts", 200]
+]));
+
+const LARGE_PLAYER_OWNER_FILES = new Set([
+  "player-media-runtime.ts",
+  "player-session.ts"
+]);
+
+const FORBIDDEN_OWNER_NAMES = new Set([
+  "ElementContext",
+  "PlayerContext",
+  "RuntimeContext"
 ]);
 
 const GENERATED_DIRECTORY_NAMES = new Set([
@@ -248,6 +276,10 @@ export async function checkBrowserRuntimeBoundaries(
     violations
   );
   await collectAdapterBarrelViolations(repositoryRoot, violations);
+  const reviewedRuntimeFiles = await collectRuntimeOwnershipViolations(
+    repositoryRoot,
+    violations
+  );
   for (const path of scannedFiles) {
     const text = await readFile(join(repositoryRoot, path), "utf8");
     if (
@@ -269,8 +301,147 @@ export async function checkBrowserRuntimeBoundaries(
   return Object.freeze({
     status: "passed",
     canonicalRuntime: CANONICAL_RUNTIME,
-    scannedFiles: scannedFiles.length
+    scannedFiles: scannedFiles.length,
+    reviewedRuntimeFiles
   });
+}
+
+async function collectRuntimeOwnershipViolations(
+  repositoryRoot,
+  violations
+) {
+  const sourceRoot = join(repositoryRoot, "packages", "element", "src");
+  const entries = await readdir(sourceRoot, { withFileTypes: true });
+  const paths = entries
+    .filter((entry) => entry.isFile() && runtimeOwnerSource(entry.name))
+    .map((entry) => `packages/element/src/${entry.name}`)
+    .sort(compareText);
+
+  for (const path of paths) {
+    const source = await readFile(join(repositoryRoot, path), "utf8");
+    const limit = runtimeSourceLimit(path);
+    const actual = lineCount(source);
+    if (actual > limit) {
+      violations.push(`${path}: ${actual} lines exceeds reviewed cap ${limit}`);
+    }
+    collectOwnerBagViolations(path, source, violations);
+  }
+  return paths.length;
+}
+
+function runtimeOwnerSource(name) {
+  return name === "aval-element.ts" ||
+    name === "player.ts" ||
+    name.startsWith("player-") && name.endsWith(".ts") ||
+    name.startsWith("element-") && name.endsWith(".ts");
+}
+
+function runtimeSourceLimit(path) {
+  const facadeLimit = FACADE_SIZE_LIMITS.get(path);
+  if (facadeLimit !== undefined) return facadeLimit;
+  const name = basename(path);
+  if (name.startsWith("player-") && !LARGE_PLAYER_OWNER_FILES.has(name)) {
+    return 500;
+  }
+  return 1_000;
+}
+
+function lineCount(source) {
+  return source.split("\n").length - Number(source.endsWith("\n"));
+}
+
+function collectOwnerBagViolations(path, source, violations) {
+  const ast = parseArchitectureSource(path, source);
+  const findings = new Set();
+  visitAst(ast, (node) => {
+    if (ownerDeclarationName(node) !== null) {
+      const name = ownerDeclarationName(node);
+      if (FORBIDDEN_OWNER_NAMES.has(name)) {
+        findings.add(`forbidden generic owner declaration ${name}`);
+      }
+      if (isConstructorInputName(name)) {
+        collectInputBagFindings(node, name, findings);
+      }
+    }
+    if (node.type === "MethodDefinition" && node.kind === "constructor") {
+      for (const parameter of node.value?.params ?? []) {
+        if (isUnknownRecord(typeAnnotation(parameter))) {
+          findings.add(
+            "constructor parameters must not use Record<string, unknown> owner bags"
+          );
+        }
+      }
+    }
+  });
+  for (const finding of [...findings].sort(compareText)) {
+    violations.push(`${path}: ${finding}`);
+  }
+}
+
+function ownerDeclarationName(node) {
+  if (
+    node.type !== "TSInterfaceDeclaration" &&
+    node.type !== "TSTypeAliasDeclaration" &&
+    node.type !== "ClassDeclaration"
+  ) return null;
+  return node.id?.type === "Identifier" ? node.id.name : null;
+}
+
+function isConstructorInputName(name) {
+  return /(?:Dependencies|Input|Options|Services)$/u.test(name);
+}
+
+function collectInputBagFindings(node, name, findings) {
+  const members = node.type === "TSInterfaceDeclaration"
+    ? node.body?.body
+    : node.type === "TSTypeAliasDeclaration" &&
+      node.typeAnnotation?.type === "TSTypeLiteral"
+      ? node.typeAnnotation.members
+      : null;
+  if (!Array.isArray(members)) return;
+  for (const member of members) {
+    if (member.type === "TSIndexSignature" && hasStringIndex(member)) {
+      findings.add(`${name} must not use a string index signature`);
+    }
+    if (
+      member.type === "TSPropertySignature" &&
+      isUnknownRecord(typeAnnotation(member))
+    ) {
+      findings.add(
+        `${name} properties must not use Record<string, unknown> owner bags`
+      );
+    }
+  }
+}
+
+function hasStringIndex(member) {
+  return (member.parameters ?? []).some((parameter) =>
+    typeAnnotation(parameter)?.type === "TSStringKeyword"
+  );
+}
+
+function typeAnnotation(node) {
+  const annotation = node?.typeAnnotation;
+  return annotation?.type === "TSTypeAnnotation"
+    ? annotation.typeAnnotation
+    : annotation ?? null;
+}
+
+function isUnknownRecord(node) {
+  if (node?.type !== "TSTypeReference") return false;
+  if (
+    node.typeName?.type === "Identifier" &&
+    node.typeName.name === "Readonly"
+  ) {
+    const [wrapped] = node.typeArguments?.params ?? [];
+    return isUnknownRecord(wrapped);
+  }
+  const parameters = node.typeArguments?.params ?? [];
+  return node.typeName?.type === "Identifier" &&
+    node.typeName.name === "Record" &&
+    parameters.length === 2 &&
+    parameters[0]?.type === "TSStringKeyword" &&
+    parameters[1]?.type === "TSUnknownKeyword";
 }
 
 function assertWorkspaceRoot(manifest) {

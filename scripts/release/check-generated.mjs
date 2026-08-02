@@ -2,6 +2,7 @@
 import { spawnSync } from "node:child_process";
 
 for (const [command, args] of [
+  ["node", ["scripts/architecture/check-browser-runtime-boundaries.mjs"]],
   ["node", ["scripts/fixtures/verify-provenance.mjs"]],
   ["node", ["scripts/docs/check-docs.mjs"]],
   ["node", ["scripts/security/check-workflows.mjs"]]
