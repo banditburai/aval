@@ -91,9 +91,13 @@ element; React ref objects do not cross the framework boundary.
 The existing React source normalization and attachment state machine are
 framework-neutral apart from ref resolution and React-branded names. Move that
 logic into two focused modules in `@pixel-point/aval-element`: source/option
-normalization and one host binding. Both React and Svelte consume these modules
-through the element package's public root. React keeps its public API unchanged,
-and its only binding-target adapter resolves a React ref to `Element | null`.
+normalization and one host binding. A narrow, explicitly infrastructural
+`@pixel-point/aval-element/adapter` subpath exposes an opaque binding factory,
+configuration factory, and the contracts framework packages need. The element
+root remains an end-user custom-element API. Environment injection, node ports,
+implementation classes, and render-equality helpers stay internal. React keeps
+its public API unchanged, and its only binding-target adapter resolves a React
+ref to `Element | null`.
 
 The shared core validates only the codec-keyed URL map and boolean adapter
 options; element-authored values continue to be enforced by the element. It
@@ -131,15 +135,20 @@ inert markup.
 
 `@pixel-point/aval-svelte` is ESM-only and side-effect free. It has an exact
 runtime dependency on `@pixel-point/aval-element` and a Svelte 5 peer dependency.
-It exports one SSR-safe root with `AvalComponent`, `createAval`, adapter types,
-and the relevant re-exported element types.
+It exports one Svelte-aware root with `AvalComponent`, `createAval`, adapter
+types, and the relevant re-exported element types. The root uses `types` and
+`svelte` export conditions. It does not claim direct Node ESM support because
+its JavaScript entry re-exports a raw `.svelte` component; SSR consumers load it
+through Svelte-aware tooling.
 
 The package is built with the official Svelte library packager so consumers
 receive normal `.svelte` component source plus generated JavaScript and
 declarations. The release provenance model gains an explicit Svelte-package
 build kind instead of bypassing its existing fresh-build and tarball checks.
-Only reviewed `.svelte`, JavaScript, and declaration outputs are accepted for
-this package.
+The fresh build receives a generated temporary tsconfig whose paths resolve
+internal dependencies to the already-staged release declarations, matching the
+existing TypeScript provenance guarantee. Only reviewed `.svelte`, JavaScript,
+and declaration outputs are accepted for this package.
 
 It joins the lockstep public release set, API classification, license policy,
 SBOM, packed-consumer checks, and API report.
@@ -179,7 +188,7 @@ Verification covers:
 - one-host enforcement and binding-target replacement;
 - snapshot-identity publication and stale readiness suppression;
 - reactive component props and callbacks without host remount;
-- deterministic SSR output and DOM-global-free root import;
+- deterministic SSR output through Svelte-aware SSR compilation;
 - public Svelte type contracts;
 - dedicated example typecheck, production build, and real browser interaction;
 - workspace unit/browser tests, fresh public builds, API extraction,
