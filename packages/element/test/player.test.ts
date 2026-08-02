@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  encodedCopyCeilingForUnits,
-  routeWaitBlocksPresentation
-} from "../src/player.js";
+  encodedCopyCeilingForUnits
+} from "../src/player-resource-budget.js";
+import { routeWaitBlocksPresentation } from "../src/route-prefetch.js";
 
 describe("player runtime planning", () => {
   it("classifies only a held finite endpoint as a route-wait underflow", () => {

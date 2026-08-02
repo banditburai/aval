@@ -8,7 +8,6 @@ import {
   type MotionGraphSnapshot
 } from "@pixel-point/aval-graph";
 import {
-  maximumDecodedRgbaBytes,
   type CompiledManifest as Manifest,
   type Edge,
   type ProductionRendition as Rendition,
@@ -36,6 +35,7 @@ import {
 import {
   MAX_ROUTE_PREFETCH_INTENTS,
   planRoutePrefetch,
+  routeWaitBlocksPresentation,
   RoutePrefetchQueue
 } from "./route-prefetch.js";
 import type {
@@ -47,16 +47,14 @@ import type {
   PlayerSnapshot
 } from "./player-contract.js";
 import {
-  Renderer,
-  type RenderLayout,
-  type RendererContextChange
+  Renderer
 } from "./renderer.js";
-import { deriveRenderLayout } from "./renderer-geometry.js";
+import type { RendererContextChange } from "./renderer-contract.js";
 import {
   RendererFailureError,
   type RendererFailureDiagnostic
 } from "./renderer-diagnostics.js";
-import { AvalPlaybackError } from "./errors.js";
+import type { AvalPlaybackError } from "./errors.js";
 import type {
   AvalPlaybackLifecycleCounters,
   AvalRuntimeTraceRecord,
@@ -70,15 +68,11 @@ import {
   retainPlaybackLifecycleCounters,
   saturatingIncrement
 } from "./playback-lifecycle.js";
-import {
-  retryableCandidateOutcome,
-  unsupportedConfigCandidateOutcome,
-  type RetryableCandidateRejection
-} from "./provisional-candidate-outcome.js";
+import { retryableCandidateOutcome } from
+  "./provisional-candidate-outcome.js";
 import {
   orchestrateProvisionalCandidates,
   qualifyProvisionalOutput,
-  UnsupportedPlaybackProfileError,
   withProvisionalCandidateFrame
 } from "./provisional-startup.js";
 import {
@@ -90,6 +84,41 @@ import {
   PreparationDeadline,
   preparationTimeout
 } from "./preparation-deadline.js";
+import {
+  abortError,
+  candidateReport,
+  isAbort,
+  limit,
+  playbackFailureCode,
+  playbackOperationFailureCode,
+  playerAbortReason,
+  preparationOperationFailureCode,
+  provisionalPlaybackFailure,
+  rendererFailureOperation,
+  startupFailureDisposition,
+  unsupportedProfileError,
+  type CandidateReport
+} from "./player-failures.js";
+import { PublicationGate } from "./player-publication-gate.js";
+import {
+  mergePlayerDecoderDiagnostics,
+  PlayerCandidateSelector,
+  type PlayerCandidateHandle,
+  type PlayerCandidateProbe,
+  type PlayerCandidateProbeResult,
+  type ProvisionalPlayerCandidate
+} from "./player-selection.js";
+import {
+  assertCandidateResourceBudget,
+  assertPlayerResourceBudget,
+  assertRuntimeResourceBudget,
+  checkedResourceTotal,
+  encodedUnitCopyBytes,
+  readinessResidentFrameCount,
+  reportPlayerResourceBytes,
+  renditionRenderLayout,
+  type PlayerResourceBytes
+} from "./player-resource-budget.js";
 
 type State = Manifest["states"][number];
 
@@ -121,36 +150,12 @@ type StreamReservation =
     }>;
 
 type PrepareResult = RuntimeReadinessResult;
-type CandidateReport = RuntimeReadinessResult["report"]["candidates"][number];
-
-interface SelectionCursor {
-  readonly sourceInputIndex: number;
-  readonly renditionIndex: number;
-}
-
-interface SelectionState {
-  cursor: SelectionCursor;
-  reports: Readonly<CandidateReport>[];
-  decoderDiagnostics: readonly Readonly<PlayerDecoderDiagnostic>[];
-  lastRejectionCode: RuntimeFailureCode;
-}
-
-interface ProvisionalPlayer {
-  readonly player: PlayerImpl;
-  readonly publications: PublicationGate;
-  readonly sourceIndex: number;
-  readonly rendition: Readonly<Rendition>;
-  readonly rank: number;
-  readonly requiresQualification: boolean;
-}
-
 interface StateRequest {
   readonly resolve: () => void;
   readonly reject: (reason: unknown) => void;
 }
 
 const CONTEXT_RESTORE_MS = 5_000;
-const MAX_RETAINED_DECODER_DIAGNOSTICS = 16;
 const MAX_RETAINED_RENDERER_DIAGNOSTICS = 16;
 const EMPTY_RENDERER_PRESENTATION: PlayerSnapshot["presentation"] = Object.freeze({
   cssWidth: 0,
@@ -185,31 +190,18 @@ export async function createPlayer(
     timeoutMs: input.preparationTimeoutMs,
     platform: input.platform
   });
-  const state: SelectionState = {
-    cursor: Object.freeze({ sourceInputIndex: 0, renditionIndex: 0 }),
-    reports: [],
-    decoderDiagnostics: Object.freeze([]),
-    lastRejectionCode: "unsupported-profile"
-  };
+  const selector = new PlayerCandidateSelector(
+    input.sources.length,
+    createPlayerCandidateProbe(input, deadline)
+  );
   try {
-    const candidate = await orchestrateProvisionalCandidates<ProvisionalPlayer>({
-      next: async () => {
-        const publications = new PublicationGate(
+    const candidate = await orchestrateProvisionalCandidates<
+      ProvisionalPlayerCandidate
+    >({
+      next: () => selector.next(new PublicationGate(
           input,
           provisionalPlaybackFailure
-        );
-        try {
-          return await selectPlayer(
-            publications.input,
-            deadline,
-            publications,
-            state
-          );
-        } catch (error) {
-          publications.discard();
-          throw error;
-        }
-      },
+        )),
       qualify: async (current) => {
         await installProvisionalCandidate(input, current.player, deadline);
         if (current.requiresQualification) {
@@ -219,59 +211,27 @@ export async function createPlayer(
         }
       },
       localFailure: (current) => current.player.provisionalFailure(),
-      retire: async (current) => {
-        current.publications.discard();
-        let snapshot: Readonly<PlayerSnapshot> | null = null;
-        let snapshotError: unknown;
-        try {
-          snapshot = current.player.snapshot(false);
-          state.decoderDiagnostics = mergePlayerDecoderDiagnostics(
-            state.decoderDiagnostics,
-            snapshot.decoderDiagnostics
-          );
-        } catch (error) {
-          snapshotError = error;
-        }
-        let disposalError: unknown;
-        try { await current.player.dispose(); }
-        catch (error) { disposalError = error; }
-        if (disposalError !== undefined) throw disposalError;
-        if (snapshot === null) throw snapshotError;
-        return Object.freeze({
-          retryAllowed: (snapshot.cleanupFailureCount ?? 0) === 0
-        });
-      },
+      retire: (current) => selector.retire(current),
       cancelled: () => deadline.timedOut || input.signal.aborted,
       selected: (current) => current.publications.commit(),
-      rejected: (current, rejection) => {
-        const code = candidateRejectionFailureCode(rejection);
-        state.lastRejectionCode = code;
-        state.reports.push(candidateReport(
-          current.rendition.id,
-          current.rank,
-          code
-        ));
-      }
+      rejected: (current, rejection) => selector.reject(current, rejection)
     });
     return candidate.player;
   } catch (error) {
-    const timedOut = !input.signal.aborted && (
-      deadline.timedOut || isTimeout(error)
-    );
+    const disposition = startupFailureDisposition({
+      reason: error,
+      sourceAborted: input.signal.aborted,
+      deadlineTimedOut: deadline.timedOut
+    });
     deadline.dispose();
-    if (input.signal.aborted || isAbort(error) && !timedOut) throw error;
-    throw input.onPlaybackFailure(
-      timedOut
-        ? "watchdog-timeout"
-        : playbackErrorFailureCode(error) ?? selectionFailureCode(error),
-      "prepare"
-    );
+    if (disposition.kind === "abort") throw error;
+    throw input.onPlaybackFailure(disposition.code, "prepare");
   }
 }
 
 async function installProvisionalCandidate(
   input: Readonly<Pick<PlayerInput, "onCandidate">>,
-  player: PlayerImpl,
+  player: PlayerCandidateHandle,
   preparation: PreparationDeadline
 ): Promise<void> {
   if (input.onCandidate === undefined) {
@@ -293,329 +253,328 @@ async function installProvisionalCandidate(
   }
 }
 
-async function selectPlayer(
-  input: Readonly<PlayerInput>,
-  deadline: PreparationDeadline,
-  publications: PublicationGate,
-  state: SelectionState
-): Promise<ProvisionalPlayer> {
-  if (input.sources.length === 0) throw new TypeError("AVAL requires a source");
-  let retained: Asset | null = null;
-  let unavailable: CandidateRejectionReason = "codec-unsupported";
-  for (
-    let inputIndex = state.cursor.sourceInputIndex;
-    inputIndex < input.sources.length;
-    inputIndex += 1
-  ) {
-    const source = input.sources[inputIndex]!;
-    const sourceIndex = source.sourceIndex ?? inputIndex;
-    const firstRenditionIndex = inputIndex === state.cursor.sourceInputIndex
-      ? state.cursor.renditionIndex
-      : 0;
+function createPlayerCandidateProbe(
+  target: Readonly<PlayerInput>,
+  deadline: PreparationDeadline
+): PlayerCandidateProbe {
+  let retained: Readonly<{
+    sourceInputIndex: number;
+    asset: Asset;
+  }> | null = null;
+  const releaseRetained = async (): Promise<void> => {
+    const current = retained;
+    retained = null;
+    if (current === null) return;
+    await current.asset.dispose();
+    reportCurrentPlayerResourceBytes(target, null);
+  };
+  return async (request) => {
+    const input = request.publications.input;
     deadline.signal.throwIfAborted();
-    if (retained !== null) {
-      await retained.dispose();
-      reportResourceBytes(input, null);
-      retained = null;
+    const source = input.sources[request.sourceInputIndex];
+    if (source === undefined) throw new Error("Invalid AVAL source cursor");
+    if (retained !== null &&
+      retained.sourceInputIndex !== request.sourceInputIndex) {
+      await releaseRetained();
     }
-    const asset = await Asset.open(
-      source,
-      input.baseUrl,
-      input.credentials,
-      deadline.signal,
-      input.platform
-    );
-    reportResourceBytes(input, asset);
-    retained = asset;
-    if (asset.manifest.codec !== source.codec ||
-      asset.manifest.renditions.length === 0) {
-      retained = asset;
-      unavailable = "no-video-rendition";
-      state.lastRejectionCode = "unsupported-profile";
-      state.cursor = Object.freeze({
-        sourceInputIndex: inputIndex + 1,
-        renditionIndex: 0
+    if (retained === null) {
+      const asset = await Asset.open(
+        source,
+        input.baseUrl,
+        input.credentials,
+        deadline.signal,
+        input.platform
+      );
+      reportCurrentPlayerResourceBytes(input, asset);
+      retained = Object.freeze({
+        sourceInputIndex: request.sourceInputIndex,
+        asset
       });
-      continue;
     }
-    const first = asset.manifest.renditions[0]!;
-    const firstRank = state.reports.length;
+    const asset = retained.asset;
+    const renditions = asset.manifest.renditions;
+    if (asset.manifest.codec !== source.codec || renditions.length === 0) {
+      await releaseRetained();
+      return Object.freeze({
+        kind: "source-rejected",
+        reason: "no-video-rendition"
+      });
+    }
+    const rendition = renditions[request.renditionIndex];
+    if (rendition === undefined) {
+      await releaseRetained();
+      throw new Error("Invalid AVAL rendition cursor");
+    }
+    const renditionCount = renditions.length;
+    const sourceIndex = source.sourceIndex ?? request.sourceInputIndex;
     if (deadline.timedOut) {
-      await asset.dispose();
-      reportResourceBytes(input, null);
+      await releaseRetained();
       throw preparationTimeout();
     }
-    if (!input.visible) {
+    const staticReason = !input.visible
+      ? "visibility-suspended" as const
+      : reduced(input.motion, input.reduced)
+        ? "reduced-motion" as const
+        : null;
+    if (staticReason !== null) {
       const player = new PlayerImpl(
-        input, asset, first, sourceIndex, state.decoderDiagnostics, null, null,
-        deadline, publications, "visibility-suspended",
-        state.reports, firstRank
+        input, asset, rendition, sourceIndex, request.decoderDiagnostics,
+        null, null, deadline, request.publications, staticReason,
+        request.candidateReports, request.candidateRank
       );
-      return Object.freeze({
+      retained = null;
+      return candidateProbeResult(
         player,
-        publications,
-        sourceIndex,
-        rendition: first,
-        rank: firstRank,
-        requiresQualification: false
-      });
-    }
-    if (reduced(input.motion, input.reduced)) {
-      const player = new PlayerImpl(
-        input, asset, first, sourceIndex, state.decoderDiagnostics, null, null,
-        deadline, publications, "reduced-motion", state.reports, firstRank
+        rendition,
+        false,
+        renditionCount
       );
-      return Object.freeze({
-        player,
-        publications,
-        sourceIndex,
-        rendition: first,
-        rank: firstRank,
-        requiresQualification: false
-      });
     }
     if (input.platform.Worker === null || input.platform.VideoDecoder === null ||
       input.platform.VideoFrame === null) {
-      await asset.dispose();
-      reportResourceBytes(input, null);
+      await releaseRetained();
       throw unsupportedProfileError();
     }
     if (!input.decoderReady()) {
       const player = new PlayerImpl(
-        input, asset, first, sourceIndex, state.decoderDiagnostics, null, null,
-        deadline, publications, "decoder-queued", state.reports, firstRank
+        input, asset, rendition, sourceIndex, request.decoderDiagnostics,
+        null, null, deadline, request.publications, "decoder-queued",
+        request.candidateReports, request.candidateRank
       );
-      return Object.freeze({
+      retained = null;
+      return candidateProbeResult(
         player,
-        publications,
-        sourceIndex,
-        rendition: first,
-        rank: firstRank,
-        requiresQualification: false
-      });
+        rendition,
+        false,
+        renditionCount
+      );
     }
-    for (
-      let renditionIndex = firstRenditionIndex;
-      renditionIndex < asset.manifest.renditions.length;
-      renditionIndex += 1
-    ) {
-      const rendition = asset.manifest.renditions[renditionIndex]!;
-      deadline.signal.throwIfAborted();
-      const rank = state.reports.length;
-      let plan: Readonly<ReadinessPlan>;
-      try {
-        plan = createReadinessPlan(
-          asset.manifest,
-          rendition.id,
-          asset.blobs
-        );
-      } catch (error) {
-        await asset.dispose();
-        reportResourceBytes(input, null);
+    let plan: Readonly<ReadinessPlan>;
+    try {
+      plan = createReadinessPlan(asset.manifest, rendition.id, asset.blobs);
+    } catch (error) {
+      await releaseRetained();
+      throw error;
+    }
+    const layout = renditionRenderLayout(asset.manifest, rendition);
+    const config: VideoDecoderConfig = {
+      codec: rendition.codec,
+      codedWidth: rendition.codedWidth,
+      codedHeight: rendition.codedHeight,
+      displayAspectWidth: layout.storageWidth,
+      displayAspectHeight: layout.storageHeight,
+      colorSpace: COLOR,
+      hardwareAcceleration: "no-preference",
+      optimizeForLatency: true
+    };
+    let rendererRef: Renderer | null = null;
+    let reportedDecodedBytes = 0;
+    let reportedEncodedBytes = 0;
+    const reportDecoderBytes = (increasing: boolean): void => {
+      reportCurrentPlayerResourceBytes(
+        input,
+        asset,
+        checkedResourceTotal([reportedDecodedBytes, reportedEncodedBytes]),
+        rendererRef,
+        increasing
+      );
+    };
+    const decodedBytesChanged = (bytes: number): void => {
+      const increasing = bytes > reportedDecodedBytes;
+      const previous = reportedDecodedBytes;
+      reportedDecodedBytes = bytes;
+      try { reportDecoderBytes(increasing); }
+      catch (error) {
+        reportedDecodedBytes = previous;
         throw error;
       }
-      const layout = renderLayout(asset.manifest, rendition);
-      const config: VideoDecoderConfig = {
-        codec: rendition.codec,
-        codedWidth: rendition.codedWidth,
-        codedHeight: rendition.codedHeight,
-        displayAspectWidth: layout.storageWidth,
-        displayAspectHeight: layout.storageHeight,
-        colorSpace: COLOR,
-        hardwareAcceleration: "no-preference",
-        optimizeForLatency: true
-      };
-      let rendererRef: Renderer | null = null;
-      let reportedDecodedBytes = 0;
-      let reportedEncodedBytes = 0;
-      const reportDecoderBytes = (increasing: boolean): void => {
-        reportResourceBytes(input, asset, checkedTotal([
-          reportedDecodedBytes,
-          reportedEncodedBytes
-        ]), rendererRef, increasing);
-      };
-      const decodedBytesChanged = (bytes: number): void => {
-        const increasing = bytes > reportedDecodedBytes;
-        const previous = reportedDecodedBytes;
-        reportedDecodedBytes = bytes;
-        try { reportDecoderBytes(increasing); }
-        catch (error) {
-          reportedDecodedBytes = previous;
-          throw error;
+    };
+    const encodedBytesChanged = (bytes: number): void => {
+      const increasing = bytes > reportedEncodedBytes;
+      const previous = reportedEncodedBytes;
+      reportedEncodedBytes = bytes;
+      try { reportDecoderBytes(increasing); }
+      catch (error) {
+        reportedEncodedBytes = previous;
+        throw error;
+      }
+    };
+    const decoders = new DecoderPool(config, {
+      codedWidth: rendition.codedWidth,
+      codedHeight: rendition.codedHeight,
+      displayWidth: layout.storageWidth,
+      displayHeight: layout.storageHeight,
+      visibleRect: {
+        x: 0, y: 0,
+        width: layout.storageWidth,
+        height: layout.storageHeight
+      },
+      colorSpace: COLOR
+    }, {
+      maxDecodedBytes: asset.manifest.limits.maxRuntimeBytes,
+      onDecodedBytes: decodedBytesChanged,
+      onEncodedBytes: encodedBytesChanged,
+      Worker: input.platform.Worker,
+      VideoFrame: input.platform.VideoFrame,
+      setTimeout: input.platform.setTimeout,
+      clearTimeout: input.platform.clearTimeout,
+      sampleFrameRate: asset.manifest.frameRate
+    });
+    const disposeDecoders = ():
+      readonly Readonly<PlayerDecoderDiagnostic>[] => {
+      const diagnostics = publishDecoderDiagnostics(
+        input,
+        decoders.snapshot().decoderDiagnostics,
+        sourceIndex,
+        rendition
+      );
+      decoders.dispose();
+      return diagnostics;
+    };
+    let supported = false;
+    try { supported = await limit(decoders.supported(), deadline.signal); }
+    catch (error) {
+      const diagnostics = disposeDecoders();
+      if (deadline.timedOut) {
+        await releaseRetained();
+        throw preparationTimeout();
+      }
+      const outcome = retryableCandidateOutcome(error);
+      if (!deadline.signal.aborted && outcome?.rejection.stage === "probe") {
+        if (request.renditionIndex + 1 >= renditionCount) {
+          await releaseRetained();
         }
-      };
-      const encodedBytesChanged = (bytes: number): void => {
-        const increasing = bytes > reportedEncodedBytes;
-        const previous = reportedEncodedBytes;
-        reportedEncodedBytes = bytes;
-        try { reportDecoderBytes(increasing); }
-        catch (error) {
-          reportedEncodedBytes = previous;
-          throw error;
-        }
-      };
-      const decoders = new DecoderPool(config, {
-        codedWidth: rendition.codedWidth,
-        codedHeight: rendition.codedHeight,
-        displayWidth: layout.storageWidth,
-        displayHeight: layout.storageHeight,
-        visibleRect: {
-          x: 0,
-          y: 0,
-          width: layout.storageWidth,
-          height: layout.storageHeight
-        },
-        colorSpace: COLOR
-      }, {
-        maxDecodedBytes: asset.manifest.limits.maxRuntimeBytes,
-        onDecodedBytes: decodedBytesChanged,
-        onEncodedBytes: encodedBytesChanged,
-        Worker: input.platform.Worker,
-        VideoFrame: input.platform.VideoFrame,
+        return renditionRejection(
+          rendition.id,
+          renditionCount,
+          diagnostics
+        );
+      }
+      await releaseRetained();
+      throw error;
+    }
+    if (!supported) {
+      const diagnostics = disposeDecoders();
+      if (request.renditionIndex + 1 >= renditionCount) {
+        await releaseRetained();
+      }
+      return renditionRejection(rendition.id, renditionCount, diagnostics);
+    }
+    let renderer: Renderer;
+    let contextChange:
+      ((change: Readonly<RendererContextChange>) => void) | null = null;
+    try {
+      const maxRuntimeBytes = asset.manifest.limits.maxRuntimeBytes;
+      renderer = new Renderer(input.canvas, layout, {
+        maxTextureBytes: maxRuntimeBytes,
+        maxBackingBytes: maxRuntimeBytes,
+        maxRuntimeBytes,
         setTimeout: input.platform.setTimeout,
         clearTimeout: input.platform.clearTimeout,
-        sampleFrameRate: asset.manifest.frameRate
+        onContextChange: (change) => contextChange?.(change),
+        initialPresentation: {
+          width: input.initialPresentation.width,
+          height: input.initialPresentation.height,
+          dpr: input.initialPresentation.dpr,
+          fit: input.initialPresentation.fit ?? asset.manifest.canvas.fit
+        }
       });
-      const disposeDecoders = (): void => {
-        const diagnostics = decoders.snapshot().decoderDiagnostics;
-        state.decoderDiagnostics = mergePlayerDecoderDiagnostics(
-          state.decoderDiagnostics,
-          publishDecoderDiagnostics(
-            input,
-            diagnostics,
-            sourceIndex,
-            rendition
-          )
+      rendererRef = renderer;
+    } catch (error) {
+      if (error instanceof RendererFailureError) {
+        publishRendererDiagnostics(
+          input,
+          Object.freeze([error.diagnostic]),
+          sourceIndex,
+          rendition
         );
-        decoders.dispose();
-      };
-      let supported = false;
-      try { supported = await limit(decoders.supported(), deadline.signal); }
-      catch (error) {
-        disposeDecoders();
-        if (deadline.timedOut) {
-          await asset.dispose();
-          reportResourceBytes(input, null);
-          throw preparationTimeout();
-        }
-        const outcome = retryableCandidateOutcome(error);
-        if (!deadline.signal.aborted &&
-          outcome?.rejection.stage === "probe") {
-          unavailable = "codec-unsupported";
-          state.lastRejectionCode = "unsupported-profile";
-          state.reports.push(candidateReport(rendition.id, rank, unavailable));
-          continue;
-        }
-        await asset.dispose();
-        reportResourceBytes(input, null);
-        throw error;
       }
-      if (!supported) {
-        disposeDecoders();
-        const outcome = unsupportedConfigCandidateOutcome();
-        unavailable = "codec-unsupported";
-        state.lastRejectionCode = "unsupported-profile";
-        state.reports.push(candidateReport(
-          rendition.id,
-          rank,
-          candidateRejectionFailureCode(outcome.rejection)
-        ));
-        continue;
-      }
-      let renderer: Renderer;
-      let contextChange:
-        ((change: Readonly<RendererContextChange>) => void) | null = null;
-      try {
-        const maxRuntimeBytes = asset.manifest.limits.maxRuntimeBytes;
-        renderer = new Renderer(input.canvas, layout, {
-          maxTextureBytes: maxRuntimeBytes,
-          maxBackingBytes: maxRuntimeBytes,
-          maxRuntimeBytes,
-          setTimeout: input.platform.setTimeout,
-          clearTimeout: input.platform.clearTimeout,
-          onContextChange: (change) => contextChange?.(change),
-          initialPresentation: {
-            width: input.initialPresentation.width,
-            height: input.initialPresentation.height,
-            dpr: input.initialPresentation.dpr,
-            fit: input.initialPresentation.fit ?? asset.manifest.canvas.fit
-          }
-        });
-        rendererRef = renderer;
-      } catch (error) {
-        if (error instanceof RendererFailureError) {
-          publishRendererDiagnostics(
-            input,
-            Object.freeze([error.diagnostic]),
-            sourceIndex,
-            rendition
-          );
-        }
-        disposeDecoders();
-        rendererRef?.dispose();
-        rendererRef = null;
-        await asset.dispose();
-        reportResourceBytes(input, null);
-        throw error;
-      }
-      try {
-        reportDecoderBytes(true);
-        assertCandidateBudget(asset, rendition, renderer, plan);
-      }
-      catch (error) {
-        disposeDecoders();
-        renderer.dispose();
-        rendererRef = null;
-        await asset.dispose();
-        reportResourceBytes(input, null);
-        throw error;
-      }
-      const nextRenditionIndex = renditionIndex + 1;
-      state.cursor = nextRenditionIndex < asset.manifest.renditions.length
-        ? Object.freeze({ sourceInputIndex: inputIndex, renditionIndex: nextRenditionIndex })
-        : Object.freeze({ sourceInputIndex: inputIndex + 1, renditionIndex: 0 });
-      let candidateDeadline: PreparationDeadline;
-      try {
-        candidateDeadline = deadline.forkDeferred(
-          CANDIDATE_PREPARATION_TIMEOUT_MS
-        );
-      } catch (error) {
-        disposeDecoders();
-        renderer.dispose();
-        rendererRef = null;
-        await asset.dispose();
-        reportResourceBytes(input, null);
-        throw error;
-      }
-      const player = new PlayerImpl(
-        input, asset, rendition, sourceIndex, state.decoderDiagnostics,
-        decoders, renderer, candidateDeadline, publications, null,
-        state.reports, rank
-      );
-      contextChange = (change) => player.contextChanged(change);
-      return Object.freeze({
-        player,
-        publications,
-        sourceIndex,
-        rendition,
-        rank,
-        requiresQualification: true
-      });
+      disposeDecoders();
+      rendererRef?.dispose();
+      await releaseRetained();
+      throw error;
     }
-    state.cursor = Object.freeze({
-      sourceInputIndex: inputIndex + 1,
-      renditionIndex: 0
-    });
-  }
-  if (retained === null) throw new SelectionExhaustedError(state.lastRejectionCode);
-  const rendition = retained.manifest.renditions[0];
-  await retained.dispose();
-  reportResourceBytes(input, null);
-  if (rendition === undefined) throw new Error("Invalid AVAL asset");
-  throw new SelectionExhaustedError(state.lastRejectionCode);
+    try {
+      reportDecoderBytes(true);
+      const rendererAdmission = renderer.admit(
+        readinessResidentFrameCount(plan)
+      );
+      const assetResources = asset.snapshot();
+      assertCandidateResourceBudget({
+        manifest: asset.manifest,
+        rendition,
+        unitBlobs: asset.blobs,
+        assetMode: assetResources.mode,
+        metadataBytes: assetResources.metadataBytes,
+        residentBlobBytes: assetResources.residentBlobBytes,
+        readinessEncodedBytes: plan.encodedBytes,
+        rendererRuntimeBytes: rendererAdmission.runtimeBytes
+      });
+    } catch (error) {
+      disposeDecoders();
+      renderer.dispose();
+      rendererRef = null;
+      await releaseRetained();
+      throw error;
+    }
+    let candidateDeadline: PreparationDeadline;
+    try {
+      candidateDeadline = deadline.forkDeferred(
+        CANDIDATE_PREPARATION_TIMEOUT_MS
+      );
+    } catch (error) {
+      disposeDecoders();
+      renderer.dispose();
+      rendererRef = null;
+      await releaseRetained();
+      throw error;
+    }
+    const player = new PlayerImpl(
+      input, asset, rendition, sourceIndex, request.decoderDiagnostics,
+      decoders, renderer, candidateDeadline, request.publications, null,
+      request.candidateReports, request.candidateRank
+    );
+    contextChange = (change) => player.contextChanged(change);
+    retained = null;
+    return candidateProbeResult(
+      player,
+      rendition,
+      true,
+      renditionCount
+    );
+  };
 }
 
-class PlayerImpl implements Player {
+function candidateProbeResult(
+  player: PlayerCandidateHandle,
+  rendition: Readonly<Rendition>,
+  requiresQualification: boolean,
+  renditionCount: number
+): Readonly<PlayerCandidateProbeResult> {
+  return Object.freeze({
+    kind: "candidate",
+    player,
+    renditionId: rendition.id,
+    requiresQualification,
+    renditionCount
+  });
+}
+
+function renditionRejection(
+  renditionId: string,
+  renditionCount: number,
+  decoderDiagnostics: readonly Readonly<PlayerDecoderDiagnostic>[]
+): Readonly<PlayerCandidateProbeResult> {
+  return Object.freeze({
+    kind: "rendition-rejected",
+    renditionId,
+    renditionCount,
+    reason: "codec-unsupported",
+    decoderDiagnostics
+  });
+}
+
+class PlayerImpl implements PlayerCandidateHandle {
   public readonly metadata: Readonly<Metadata>;
   readonly #input: Readonly<PlayerInput>;
   readonly #asset: Asset;
@@ -750,7 +709,7 @@ class PlayerImpl implements Player {
     this.#reportCurrent = reportCurrent;
     this.#decoders = decoders;
     this.#renderer = renderer;
-    const layout = renderLayout(this.#manifest, rendition);
+    const layout = renditionRenderLayout(this.#manifest, rendition);
     this.#validator = createCodecValidator({
       codec: rendition.codec,
       bitDepth: rendition.bitDepth,
@@ -1023,7 +982,7 @@ class PlayerImpl implements Player {
         this.#captureRendererDiagnostic(error.diagnostic);
       }
       void this.#terminate(
-        admissionFailure(error) ? "resource-rejection" : playbackFailureCode(error),
+        playbackOperationFailureCode(error),
         rendererFailureOperation(error, "resize")
       );
     }
@@ -1158,9 +1117,10 @@ class PlayerImpl implements Player {
       if (policyReason(this.#staticReason)) {
         return this.#recoverStatic(this.#staticReason);
       }
-      const code = this.#preparationDeadline.timedOut
-        ? "watchdog-timeout" : admissionFailure(error)
-          ? "resource-rejection" : preparationFailureCode(error);
+      const code = preparationOperationFailureCode(
+        error,
+        this.#preparationDeadline.timedOut
+      );
       throw await this.#terminate(code, "prepare");
     }
   }
@@ -1235,7 +1195,7 @@ class PlayerImpl implements Player {
     await qualifyProvisionalOutput({
       manifest: this.#manifest,
       renditionId: this.#rendition.id,
-      layout: renderLayout(this.#manifest, this.#rendition),
+      layout: renditionRenderLayout(this.#manifest, this.#rendition),
       withDecodedFrame: async (unitId, localFrame, use) => {
         const unit = this.#unit(unitId);
         await this.#preloadRun(unit, this.#preparationDeadline.signal);
@@ -1384,24 +1344,15 @@ class PlayerImpl implements Player {
     const renderer = this.#renderer?.snapshot();
     if (renderer === undefined) throw new Error("AVAL renderer is unavailable");
     const decoders = this.#decoders?.snapshot();
-    const encodedBytes = encodedCopyCeiling(this.#asset, this.#rendition);
-    const surfaceBytes = decodedSurfaceBytes(this.#manifest, this.#rendition);
-    const aggregate = checkedTotal([
-      asset.metadataBytes,
-      asset.residentBlobBytes,
-      encodedBytes,
-      Math.max(
-        decoders?.openFrameBytes ?? 0,
-        checkedTotal(Array.from(
-          { length: ELEMENT_DECODER_CAPACITY.totalDecodedSurfaces },
-          () => surfaceBytes
-        ))
-      ),
-      renderer.runtimeBytes
-    ]);
-    if (aggregate > this.#manifest.limits.maxRuntimeBytes) {
-      throw resourceBudgetError();
-    }
+    assertRuntimeResourceBudget({
+      manifest: this.#manifest,
+      rendition: this.#rendition,
+      unitBlobs: this.#asset.blobs,
+      metadataBytes: asset.metadataBytes,
+      residentBlobBytes: asset.residentBlobBytes,
+      decoderOpenFrameBytes: decoders?.openFrameBytes ?? 0,
+      rendererRuntimeBytes: renderer.runtimeBytes
+    });
   }
 
   #retireAnimationResources(): Promise<void> {
@@ -1459,16 +1410,16 @@ class PlayerImpl implements Player {
     this.#residentReady.clear();
     this.#residentFrames.clear();
     await this.#asset.dispose();
-    reportResourceBytes(this.#input, null);
+    reportCurrentPlayerResourceBytes(this.#input, null);
     this.#input.onAnimationResourcesRetired();
     this.#animationResourcesRetired = true;
   }
 
   #reportResourceBytes(): void {
-    reportResourceBytes(
+    reportCurrentPlayerResourceBytes(
       this.#input,
       this.#asset,
-      checkedTotal([
+      checkedResourceTotal([
         this.#decoders?.snapshot().openFrameBytes ?? 0,
         this.#decoders?.encodedBytes ?? 0
       ]),
@@ -2059,16 +2010,17 @@ class PlayerImpl implements Player {
     const decoders = this.#decoders;
     if (decoders === null) throw new Error("AVAL decoder is unavailable");
     const span = this.#unitSpan(unit);
-    const copyBytes = encodedUnitCopyBytes(this.#asset, span);
-    const decoderBytes = checkedTotal([
+    const copyBytes = encodedUnitCopyBytes(this.#asset.records, span);
+    const decoderBytes = checkedResourceTotal([
       decoders.snapshot().openFrameBytes,
       decoders.encodedBytes,
       copyBytes
     ]);
-    if (resourceBytes(this.#asset, decoderBytes, this.#renderer) >
-      this.#manifest.limits.maxRuntimeBytes) {
-      throw resourceBudgetError();
-    }
+    assertPlayerResourceBudget(currentPlayerResourceBytes(
+      this.#asset,
+      decoderBytes,
+      this.#renderer
+    ));
     const samples: DecodeSample[] = [];
     for (let index = 0; index < span.chunkCount; index += 1) {
       const record = this.#asset.records[span.chunkStart + index];
@@ -2455,24 +2407,6 @@ class PlayerImpl implements Player {
   }
 }
 
-function renderLayout(
-  manifest: Readonly<Manifest>,
-  rendition: Readonly<Rendition>
-): Readonly<RenderLayout> {
-  const color = rendition.alphaLayout.colorRect;
-  const alpha = rendition.alphaLayout.type === "stacked"
-    ? rendition.alphaLayout.alphaRect : undefined;
-  return deriveRenderLayout({
-    codedWidth: rendition.codedWidth,
-    codedHeight: rendition.codedHeight,
-    logicalWidth: manifest.canvas.width,
-    logicalHeight: manifest.canvas.height,
-    pixelAspect: manifest.canvas.pixelAspect,
-    colorRect: color,
-    ...(alpha === undefined ? {} : { alphaRect: alpha })
-  });
-}
-
 function postDraw(effect: Readonly<MotionGraphEffect>): boolean {
   return effect.type === "transitionstart" || effect.type === "visualstatechange" ||
     effect.type === "transitionend" || effect.type === "settle";
@@ -2503,370 +2437,50 @@ function requestError(name: string): Error {
   return error;
 }
 
-function reportResourceBytes(
-  input: Readonly<PlayerInput>,
+function reportCurrentPlayerResourceBytes(
+  input: Readonly<Pick<PlayerInput, "onResourceBytes">>,
   asset: Asset | null,
-  decodedBytes = 0,
+  decoderBytes = 0,
   renderer: Renderer | null = null,
-  enforce = false
+  enforceMaximum = false
 ): void {
-  if (asset === null) {
-    input.onResourceBytes(0);
-    return;
-  }
-  const bytes = resourceBytes(asset, decodedBytes, renderer);
-  if (enforce && bytes > asset.manifest.limits.maxRuntimeBytes) {
-    throw resourceBudgetError();
-  }
-  input.onResourceBytes(bytes);
+  reportPlayerResourceBytes(
+    input,
+    asset === null
+      ? null
+      : currentPlayerResourceBytes(
+          asset,
+          decoderBytes,
+          renderer,
+          enforceMaximum
+        )
+  );
 }
 
-function resourceBytes(
+function currentPlayerResourceBytes(
   asset: Asset,
   decoderBytes: number,
-  renderer: Renderer | null
-): number {
+  renderer: Renderer | null,
+  enforceMaximum = false
+): Readonly<PlayerResourceBytes> {
   const snapshot = asset.snapshot();
-  return checkedTotal([
-    snapshot.metadataBytes,
-    snapshot.residentBlobBytes,
+  return Object.freeze({
+    metadataBytes: snapshot.metadataBytes,
+    residentBlobBytes: snapshot.residentBlobBytes,
     decoderBytes,
-    renderer?.snapshot().runtimeBytes ?? 0
-  ]);
-}
-
-function encodedUnitCopyBytes(
-  asset: Asset,
-  span: Readonly<{ chunkStart: number; chunkCount: number }>
-): number {
-  let bytes = 0;
-  for (let index = 0; index < span.chunkCount; index += 1) {
-    const record = asset.records[span.chunkStart + index];
-    if (record === undefined) throw new Error("Invalid AVAL asset");
-    bytes = checkedTotal([bytes, record.byteLength]);
-  }
-  return bytes;
+    rendererRuntimeBytes: renderer?.snapshot().runtimeBytes ?? 0,
+    maximumBytes: asset.manifest.limits.maxRuntimeBytes,
+    enforceMaximum
+  });
 }
 
 function reduced(policy: string, host: boolean): boolean {
   return policy === "reduce" || policy === "auto" && host;
 }
-
-function decodedSurfaceBytes(
-  manifest: Readonly<Manifest>,
-  rendition: Readonly<Rendition>
-): number {
-  return maximumDecodedRgbaBytes(
-    manifest.codec,
-    rendition.codedWidth,
-    rendition.codedHeight
-  );
-}
-
-export function routeWaitBlocksPresentation(
-  presentation: Readonly<GraphPresentation> | null,
-  departure: Readonly<{
-    start: Readonly<{ type: Edge["start"]["type"] }>;
-  }> | null,
-  unit: Readonly<Unit> | null
-): boolean {
-  return departure !== null && presentation?.kind === "body" &&
-    departure.start.type !== "cut" &&
-    unit?.kind === "body" && unit.playback === "finite" &&
-    presentation.frameIndex === unit.frameCount - 1;
-}
-
-/** Exact encoded-copy ceiling implied by four queued wants plus active and retiring runs. */
-export function encodedCopyCeilingForUnits(unitCopyBytes: readonly number[]): number {
-  const ordered = unitCopyBytes.map((value) => checkedTotal([value]))
-    .sort((left, right) => right - left);
-  const maximum = ordered[0] ?? 0;
-  return checkedTotal([
-    maximum,
-    maximum,
-    ...ordered.slice(0, MAX_ROUTE_PREFETCH_INTENTS)
-  ]);
-}
-
-function encodedCopyCeiling(
-  asset: Asset,
-  rendition: Readonly<Rendition>
-): number {
-  const copies = asset.blobs
-    .filter(({ rendition: id }) => id === rendition.id)
-    .map(({ length }) => length);
-  if (copies.length !== asset.manifest.units.length) {
-    throw new Error("Invalid AVAL asset");
-  }
-  return encodedCopyCeilingForUnits(copies);
-}
-
-function assertCandidateBudget(
-  asset: Asset,
-  rendition: Readonly<Rendition>,
-  renderer: Renderer,
-  plan: Readonly<ReadinessPlan>
-): void {
-  const resident = new Map<string, Set<number>>();
-  for (const entry of plan.resident) {
-    resident.set(entry.unit, new Set(entry.frames));
-  }
-  let residentFrames = 0;
-  for (const frames of resident.values()) {
-    residentFrames = checkedTotal([residentFrames, frames.size]);
-  }
-  const rendererAdmission = renderer.admit(residentFrames);
-  const assetSnapshot = asset.snapshot();
-  const residentBlobBytes = assetSnapshot.mode === "full"
-    ? assetSnapshot.residentBlobBytes : plan.encodedBytes;
-  const aggregate = checkedTotal([
-    assetSnapshot.metadataBytes,
-    residentBlobBytes,
-    encodedCopyCeiling(asset, rendition),
-    checkedProduct([
-      ELEMENT_DECODER_CAPACITY.totalDecodedSurfaces,
-      decodedSurfaceBytes(asset.manifest, rendition)
-    ]),
-    rendererAdmission.runtimeBytes
-  ]);
-  if (aggregate > asset.manifest.limits.maxRuntimeBytes) {
-    throw resourceBudgetError();
-  }
-}
-
-function candidateReport(
-  rendition: string,
-  rank: number,
-  reason: StaticReason | CandidateRejectionReason | RuntimeFailureCode | null
-) {
-  if (reason === null) {
-    return Object.freeze({ rendition, rank, outcome: "selected" as const, failure: null });
-  }
-  if (reason === "reduced-motion" || reason === "visibility-suspended" ||
-    reason === "decoder-queued") {
-    return Object.freeze({ rendition, rank, outcome: "eligible" as const, failure: null });
-  }
-  const code: RuntimeFailureCode = reason === "codec-unsupported" ||
-    reason === "no-video-rendition"
-      ? "unsupported-profile"
-      : reason;
-  return Object.freeze({
-    rendition,
-    rank,
-    outcome: "rejected" as const,
-    failure: Object.freeze({
-      code,
-      message: "animation candidate was rejected",
-      context: Object.freeze({ rendition, rank })
-    })
-  });
-}
-
-type CandidateRejectionReason =
-  | "codec-unsupported"
-  | "no-video-rendition";
-
-class SelectionExhaustedError extends Error {
-  public readonly failureCode: RuntimeFailureCode;
-
-  public constructor(failureCode: RuntimeFailureCode) {
-    super("No AVAL source completed startup qualification");
-    this.name = "NotSupportedError";
-    this.failureCode = failureCode;
-  }
-}
-
-function provisionalPlaybackFailure(
-  code: RuntimeFailureCode,
-  operation: string
-): AvalPlaybackError {
-  return new AvalPlaybackError(Object.freeze({
-    code,
-    message: `AVAL provisional candidate failed (${code})`,
-    operation
-  }), 1);
-}
-
-function playbackErrorFailureCode(error: unknown): RuntimeFailureCode | null {
-  if (error instanceof SelectionExhaustedError) return error.failureCode;
-  if (!(error instanceof AvalPlaybackError)) return null;
-  return isRuntimeFailureCode(error.failure.code) ? error.failure.code : null;
-}
-
-function candidateRejectionFailureCode(
-  rejection: Readonly<RetryableCandidateRejection>
-): RuntimeFailureCode {
-  return rejection.stage === "probe"
-    ? "unsupported-profile"
-    : "worker-decode-failure";
-}
-
-function isRuntimeFailureCode(value: unknown): value is RuntimeFailureCode {
-  return value === "invalid-asset" || value === "load-failure" ||
-    value === "range-response-invalid" || value === "entity-changed" ||
-    value === "integrity-mismatch" || value === "unsupported-profile" ||
-    value === "resource-rejection" || value === "readiness-failure" ||
-    value === "worker-decode-failure" || value === "renderer-failure" ||
-    value === "context-loss" || value === "watchdog-timeout" ||
-    value === "underflow" || value === "abort" || value === "disposed";
-}
-
-function abortError(): Error {
-  return new DOMException("AVAL operation was superseded", "AbortError");
-}
-
-function playerAbortReason(signal: AbortSignal): Error {
-  return signal.aborted && signal.reason instanceof Error
-    ? signal.reason
-    : abortError();
-}
-
-function limit<T>(
-  operation: Promise<T>,
-  signal?: AbortSignal,
-  timeoutMs?: number,
-  platform?: Pick<PlayerInput["platform"], "setTimeout" | "clearTimeout">
-): Promise<T> {
-  if (signal?.aborted) return Promise.reject(signal.reason);
-  if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1)) {
-    return Promise.reject(new RangeError("timeoutMs must be a positive integer"));
-  }
-  if (signal === undefined && timeoutMs === undefined) return operation;
-  return new Promise<T>((resolve, reject) => {
-    let timer: number | undefined;
-    let settled = false;
-    const cleanup = (): void => {
-      signal?.removeEventListener("abort", abort);
-      if (timer !== undefined) (platform?.clearTimeout ?? clearTimeout)(timer);
-    };
-    const resolveOnce = (value: T): void => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve(value);
-    };
-    const rejectOnce = (reason: unknown): void => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(reason);
-    };
-    const abort = (): void => rejectOnce(signal?.reason ?? abortError());
-    signal?.addEventListener("abort", abort, { once: true });
-    if (timeoutMs !== undefined) timer = (platform?.setTimeout ?? setTimeout)(() => {
-      rejectOnce(new DOMException("AVAL preparation timed out", "TimeoutError"));
-    }, timeoutMs);
-    operation.then(resolveOnce, rejectOnce);
-  });
-}
-
-function resourceBudgetError(): Error {
-  const error = new RangeError("AVAL runtime resource budget is insufficient");
-  error.name = "ResourceBudgetError";
-  return error;
-}
-
-function unsupportedProfileError(): UnsupportedPlaybackProfileError {
-  return new UnsupportedPlaybackProfileError(
-    "AVAL has no supported animated rendition"
-  );
-}
-
-function unsupportedProfileFailure(reason: unknown): boolean {
-  return reason instanceof UnsupportedPlaybackProfileError ||
-    errorString(reason, "name") === "NotSupportedError";
-}
-
-function admissionFailure(error: unknown): boolean {
-  return errorString(error, "name") === "ResourceBudgetError" ||
-    /resource declarations|resource budget|byte cap|byte ceiling/i.test(
-      errorString(error, "message") ?? ""
-    );
-}
-
-function playbackFailureCode(reason: unknown): "renderer-failure" | "worker-decode-failure" {
-  if (reason instanceof RendererFailureError) return "renderer-failure";
-  const message = errorString(reason, "message") ?? "";
-  return /canvas|context|draw|renderer|texture|viewport|webgl/i.test(message)
-    ? "renderer-failure"
-    : "worker-decode-failure";
-}
-
-function preparationFailureCode(reason: unknown):
-  | "readiness-failure"
-  | "renderer-failure"
-  | "unsupported-profile"
-  | "worker-decode-failure" {
-  if (unsupportedProfileFailure(reason)) return "unsupported-profile";
-  if (reason instanceof RendererFailureError) return "renderer-failure";
-  const message = errorString(reason, "message") ?? "";
-  if (/canvas|context|draw|renderer|texture|viewport|webgl/i.test(message)) {
-    return "renderer-failure";
-  }
-  if (/codec|decode|decoder|frame|video/i.test(message)) {
-    return "worker-decode-failure";
-  }
-  return "readiness-failure";
-}
-
-function selectionFailureCode(reason: unknown):
-  | "invalid-asset"
-  | "resource-rejection"
-  | "renderer-failure"
-  | "worker-decode-failure"
-  | "readiness-failure"
-  | "unsupported-profile" {
-  const message = errorString(reason, "message") ?? "";
-  if (reason instanceof RendererFailureError) return "renderer-failure";
-  if (unsupportedProfileFailure(reason)) return "unsupported-profile";
-  if (admissionFailure(reason)) return "resource-rejection";
-  if (/canvas|context|draw|renderer|texture|viewport|webgl/i.test(message)) {
-    return "renderer-failure";
-  }
-  if (/codec|decode|decoder|frame|video|worker/i.test(message)) {
-    return "worker-decode-failure";
-  }
-  if (/invalid aval|manifest|asset/i.test(message)) return "invalid-asset";
-  return "readiness-failure";
-}
-
-function rendererFailureOperation(
-  reason: unknown,
-  fallback: string
-): string {
-  if (!(reason instanceof RendererFailureError)) return fallback;
-  if (reason.diagnostic.operation === "restore") return "restore";
-  if (reason.diagnostic.phase === "resize") return "resize";
-  return reason.diagnostic.operation === "construct" ? "prepare" : "render";
-}
-
 function policyReason(reason: StaticReason | null): reason is
   "reduced-motion" | "visibility-suspended" | "decoder-queued" {
   return reason === "reduced-motion" || reason === "visibility-suspended" ||
     reason === "decoder-queued";
-}
-
-function checkedTotal(values: readonly number[]): number {
-  let total = 0;
-  for (const value of values) {
-    if (!Number.isSafeInteger(value) || value < 0 || total > Number.MAX_SAFE_INTEGER - value) {
-      throw resourceBudgetError();
-    }
-    total += value;
-  }
-  return total;
-}
-
-function checkedProduct(values: readonly number[]): number {
-  let product = 1;
-  for (const value of values) {
-    if (!Number.isSafeInteger(value) || value < 0 ||
-      value !== 0 && product > Math.floor(Number.MAX_SAFE_INTEGER / value)) {
-      throw resourceBudgetError();
-    }
-    product *= value;
-  }
-  return product;
 }
 
 function publishDecoderDiagnostics(
@@ -2894,30 +2508,6 @@ function publishDecoderDiagnostics(
     catch { /* diagnostics cannot replace the playback outcome */ }
   }
   return enriched;
-}
-
-function mergePlayerDecoderDiagnostics(
-  current: readonly Readonly<PlayerDecoderDiagnostic>[],
-  incoming: readonly Readonly<PlayerDecoderDiagnostic>[]
-): readonly Readonly<PlayerDecoderDiagnostic>[] {
-  if (incoming.length === 0) return current;
-  const bySourceLane = new Map<string, Readonly<PlayerDecoderDiagnostic>>(
-    current.map((diagnostic) => [
-      `${String(diagnostic.sourceIndex)}:${String(diagnostic.lane)}`,
-      diagnostic
-    ] as const)
-  );
-  for (const diagnostic of incoming) {
-    const key = `${String(diagnostic.sourceIndex)}:${String(diagnostic.lane)}`;
-    if (!bySourceLane.has(key)) bySourceLane.set(key, diagnostic);
-  }
-  return Object.freeze(
-    [...bySourceLane.values()]
-      .sort((left, right) =>
-        left.sourceIndex - right.sourceIndex || left.lane - right.lane
-      )
-      .slice(-MAX_RETAINED_DECODER_DIAGNOSTICS)
-  );
 }
 
 function publishRendererDiagnostics(
@@ -2949,121 +2539,3 @@ const EMPTY_DECODER_GRAPH_DIAGNOSTIC = Object.freeze({
   activeUnit: null,
   pendingUnit: null
 }) satisfies Readonly<PlayerDecoderDiagnostic["graph"]>;
-
-class PublicationGate {
-  public readonly input: Readonly<PlayerInput>;
-  readonly #targetPlaybackFailure: PlayerInput["onPlaybackFailure"];
-  readonly #pending: Array<Readonly<{
-    kind: "animated-readiness" | "draw" | "other";
-    operation: () => void;
-  }>> = [];
-  #playbackFailure: PlayerInput["onPlaybackFailure"];
-  #active = false;
-  #discarded = false;
-  #flushing = false;
-
-  public constructor(
-    target: Readonly<PlayerInput>,
-    playbackFailure: PlayerInput["onPlaybackFailure"] = target.onPlaybackFailure
-  ) {
-    this.#targetPlaybackFailure = target.onPlaybackFailure;
-    this.#playbackFailure = playbackFailure;
-    const publish = (
-      operation: () => void,
-      kind: "animated-readiness" | "draw" | "other" = "other"
-    ): void => {
-      if (this.#discarded) return;
-      if (this.#active && !this.#flushing) operation();
-      else this.#pending.push(Object.freeze({ kind, operation }));
-    };
-    this.input = Object.freeze({
-      ...target,
-      // Resource accounting is lifecycle authority, not a public candidate
-      // publication. It must remain current while provisional players qualify.
-      onResourceBytes: (bytes: number) => target.onResourceBytes(bytes),
-      onMetadata: (metadata: Readonly<Metadata>) =>
-        publish(() => target.onMetadata(metadata)),
-      onReadiness: (value: string, reason?: string) => publish(
-        () => target.onReadiness(value, reason),
-        value === "visualReady" || value === "interactiveReady"
-          ? "animated-readiness"
-          : "other"
-      ),
-      onAnimationResourcesRetired: () =>
-        publish(() => target.onAnimationResourcesRetired()),
-      onDraw: () => publish(() => target.onDraw(), "draw"),
-      onRestart: (state: string) => publish(() => target.onRestart(state)),
-      onEvent: (type: string, detail: Readonly<Record<string, unknown>>) =>
-        publish(() => target.onEvent(type, detail)),
-      onFailure: (
-        code: Parameters<PlayerInput["onFailure"]>[0],
-        operation: string,
-        fatal: boolean
-      ) =>
-        publish(() => target.onFailure(code, operation, fatal)),
-      onPlaybackFailure: (
-        code: Parameters<PlayerInput["onPlaybackFailure"]>[0],
-        operation: string
-      ) => this.#playbackFailure(code, operation),
-      onDecoderDiagnostics: (
-        diagnostics: readonly Readonly<PlayerDecoderDiagnostic>[]
-      ) =>
-        target.onDecoderDiagnostics?.(diagnostics),
-      onRendererDiagnostics: (
-        diagnostics: readonly Readonly<PlayerRendererDiagnostic>[]
-      ) =>
-        target.onRendererDiagnostics?.(diagnostics)
-    });
-  }
-
-  public activate(): void {
-    if (this.#active || this.#discarded) return;
-    this.#active = true;
-    this.#flushing = true;
-    try {
-      while (this.#pending.length > 0) {
-        this.#pending.shift()!.operation();
-      }
-    } finally {
-      this.#flushing = false;
-    }
-  }
-
-  public commit(): void {
-    if (this.#discarded) return;
-    this.#playbackFailure = this.#targetPlaybackFailure;
-  }
-
-  public discardAnimatedPresentation(): void {
-    if (this.#active || this.#discarded) return;
-    const retained = this.#pending.filter(({ kind }) =>
-      kind !== "animated-readiness" && kind !== "draw"
-    );
-    this.#pending.length = 0;
-    this.#pending.push(...retained);
-  }
-
-  public discard(): void {
-    if (this.#active || this.#discarded) return;
-    this.#discarded = true;
-    this.#pending.length = 0;
-  }
-}
-
-function isAbort(error: unknown): boolean {
-  return errorString(error, "name") === "AbortError";
-}
-
-function isTimeout(error: unknown): boolean {
-  return errorString(error, "name") === "TimeoutError";
-}
-
-function errorString(value: unknown, key: "name" | "message"): string | null {
-  if ((typeof value !== "object" && typeof value !== "function") || value === null) {
-    return null;
-  }
-  try {
-    const field = (value as { readonly name?: unknown; readonly message?: unknown })[key];
-    return typeof field === "string" ? field : null;
-  } catch { return null; }
-}

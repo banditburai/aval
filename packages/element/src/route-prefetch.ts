@@ -1,8 +1,12 @@
 import type {
   CompiledManifest as Manifest,
+  Edge,
   Unit
 } from "@pixel-point/aval-format";
-import type { MotionGraphSnapshot } from "@pixel-point/aval-graph";
+import type {
+  GraphPresentation,
+  MotionGraphSnapshot
+} from "@pixel-point/aval-graph";
 import { ELEMENT_DECODER_CAPACITY } from "./decoder-capacity.js";
 
 export const MAX_ROUTE_PREFETCH_INTENTS = 4;
@@ -43,6 +47,19 @@ export interface RoutePrefetchOperations<Run extends PrefetchableRun> {
   readonly admit: (unit: Unit) => Run;
   readonly canAdmit: () => boolean;
   readonly onFailure: (error: unknown) => void;
+}
+
+export function routeWaitBlocksPresentation(
+  presentation: Readonly<GraphPresentation> | null,
+  departure: Readonly<{
+    start: Readonly<{ type: Edge["start"]["type"] }>;
+  }> | null,
+  unit: Readonly<Unit> | null
+): boolean {
+  return departure !== null && presentation?.kind === "body" &&
+    departure.start.type !== "cut" &&
+    unit?.kind === "body" && unit.playback === "finite" &&
+    presentation.frameIndex === unit.frameCount - 1;
 }
 
 type EntryState<Run> =
