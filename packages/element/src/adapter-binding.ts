@@ -32,17 +32,7 @@ export interface AvalAdapterStatus {
   readonly lastError: Readonly<AvalErrorDetail> | null;
 }
 
-export interface AvalAdapterBinding {
-  readonly getStatus: () => Readonly<AvalAdapterStatus>;
-  readonly getServerStatus: () => Readonly<AvalAdapterStatus>;
-  readonly getRenderOptions: () => Readonly<AvalAdapterRenderOptions>;
-  readonly subscribeStatus: (listener: () => void) => () => void;
-  readonly subscribeOptions: (listener: () => void) => () => void;
-  commit(configuration: Readonly<AvalAdapterConfiguration>): void;
-  readonly attach: (node: HTMLElement | null) => void;
-  finalizeBindingTarget(target: Element | null | undefined): void;
-  clearBindingTarget(): void;
-  beginReadyPreparation(): () => void;
+export interface AvalAdapterCommands {
   readonly prepare: (
     options?: Readonly<AvalPrepareOptions>
   ) => Promise<RuntimeReadinessResult>;
@@ -54,6 +44,23 @@ export interface AvalAdapterBinding {
   readonly getDiagnostics: (
     options?: Readonly<{ readonly trace?: boolean }>
   ) => Readonly<AvalDiagnostics> | null;
+}
+
+export type AvalAdapterController =
+  Readonly<AvalAdapterStatus> & Readonly<AvalAdapterCommands>;
+
+export interface AvalAdapterBinding {
+  readonly commands: Readonly<AvalAdapterCommands>;
+  readonly getStatus: () => Readonly<AvalAdapterStatus>;
+  readonly getServerStatus: () => Readonly<AvalAdapterStatus>;
+  readonly getRenderOptions: () => Readonly<AvalAdapterRenderOptions>;
+  readonly subscribeStatus: (listener: () => void) => () => void;
+  readonly subscribeOptions: (listener: () => void) => () => void;
+  commit(configuration: Readonly<AvalAdapterConfiguration>): void;
+  readonly attach: (node: HTMLElement | null) => void;
+  finalizeBindingTarget(target: Element | null | undefined): void;
+  clearBindingTarget(): void;
+  beginReadyPreparation(): () => void;
 }
 
 export interface AvalAdapterBindingNode {
@@ -122,6 +129,7 @@ const BROWSER_ENVIRONMENT: AvalAdapterBindingEnvironment = Object.freeze({
 });
 
 export class AvalAdapterBindingImplementation implements AvalAdapterBinding {
+  public readonly commands: Readonly<AvalAdapterCommands>;
   readonly #statusListeners = new Set<StoreListener>();
   readonly #optionsListeners = new Set<StoreListener>();
   readonly #serverStatus = unmountedStatus();
@@ -141,6 +149,15 @@ export class AvalAdapterBindingImplementation implements AvalAdapterBinding {
     this.#callbacks = configuration.callbacks;
     this.#status = this.#serverStatus;
     this.#environment = environment;
+    this.commands = Object.freeze({
+      prepare: this.#prepare,
+      setState: this.#setState,
+      send: this.#send,
+      readyFor: this.#readyFor,
+      play: this.#play,
+      pause: this.#pause,
+      getDiagnostics: this.#getDiagnostics
+    });
     this.#nativeListeners = Object.freeze([
       Object.freeze([
         "requestedstatechange",
@@ -271,7 +288,7 @@ export class AvalAdapterBindingImplementation implements AvalAdapterBinding {
     return () => this.#cancelPreparation(operation);
   }
 
-  public readonly prepare = (
+  readonly #prepare = (
     options?: Readonly<AvalPrepareOptions>
   ): Promise<RuntimeReadinessResult> => {
     const element = this.#attachment?.element;
@@ -279,31 +296,31 @@ export class AvalAdapterBindingImplementation implements AvalAdapterBinding {
     return options === undefined ? element.prepare() : element.prepare(options);
   };
 
-  public readonly setState = (name: string): Promise<void> => {
+  readonly #setState = (name: string): Promise<void> => {
     const element = this.#attachment?.element;
     return element === undefined
       ? Promise.reject(notMountedError())
       : element.setState(name);
   };
 
-  public readonly send = (event: string): boolean =>
+  readonly #send = (event: string): boolean =>
     this.#attachment?.element.send(event) ?? false;
 
-  public readonly readyFor = (state: string): boolean =>
+  readonly #readyFor = (state: string): boolean =>
     this.#attachment?.element.readyFor(state) ?? false;
 
-  public readonly play = (): Promise<void> => {
+  readonly #play = (): Promise<void> => {
     const element = this.#attachment?.element;
     return element === undefined
       ? Promise.reject(notMountedError())
       : element.resume();
   };
 
-  public readonly pause = (): void => {
+  readonly #pause = (): void => {
     this.#attachment?.element.pause();
   };
 
-  public readonly getDiagnostics = (
+  readonly #getDiagnostics = (
     options?: Readonly<{ readonly trace?: boolean }>
   ): Readonly<AvalDiagnostics> | null => {
     const element = this.#attachment?.element;

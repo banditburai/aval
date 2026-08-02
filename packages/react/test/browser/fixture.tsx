@@ -7,6 +7,10 @@ import { createRoot } from "react-dom/client";
 import type { FakeAvalElementHandle } from "./fake-aval-element.js";
 
 export interface AvalReactBrowserHarness {
+  commandIdentityStable(): boolean;
+  clearOptionalAttributes(): Promise<Readonly<{
+    sameHost: boolean;
+  }>>;
   replaceSource(): Promise<Readonly<{
     sameHost: boolean;
     replacementSrc: string | null;
@@ -58,6 +62,8 @@ let transitionEndCount = 0;
 let instance = 0;
 let targetVersion = 0;
 let forcedSources: AvalSources = Object.freeze({ h264: INITIAL_SOURCE });
+let optionalAttributesEnabled = true;
+let stableCommandIdentity = true;
 
 function renderInstance(): void {
   root.render(
@@ -99,7 +105,12 @@ function ListenerTimingMotion({
   const [failed, setFailed] = useState(false);
   const { aval, AvalComponent } = useAval({
     sources,
-    state,
+    ...(optionalAttributesEnabled ? {
+      state,
+      motion: "full" as const,
+      fit: "contain" as const,
+      crossOrigin: "anonymous" as const
+    } : {}),
     onReady: (result) => {
       if (result.report.readiness === "interactiveReady") setFailed(false);
       readyCount += 1;
@@ -115,11 +126,27 @@ function ListenerTimingMotion({
       fatalCountElement.value = String(fatalCount);
     }
   });
+  const commandReferences = useRef<readonly unknown[] | null>(null);
+  const currentCommandReferences = [
+    aval.prepare,
+    aval.setState,
+    aval.send,
+    aval.readyFor,
+    aval.play,
+    aval.pause,
+    aval.getDiagnostics
+  ] as const;
+  if (commandReferences.current === null) {
+    commandReferences.current = currentCommandReferences;
+  } else if (commandReferences.current.some(
+    (reference, index) => reference !== currentCommandReferences[index]
+  )) {
+    stableCommandIdentity = false;
+  }
 
   return <>
     <AvalComponent
-      width={160}
-      height={160}
+      {...(optionalAttributesEnabled ? { width: 160, height: 160 } : {})}
       bindTo={bindTo}
       data-mounted={aval.mounted ? "true" : "false"}
       aria-hidden
@@ -135,6 +162,21 @@ function currentElement(): FakeAvalElementHandle | null {
 }
 
 window.avalReactHarness = Object.freeze({
+  commandIdentityStable() {
+    return stableCommandIdentity;
+  },
+
+  async clearOptionalAttributes() {
+    const before = currentElement();
+    optionalAttributesEnabled = false;
+    flushSync(renderInstance);
+    await Promise.resolve();
+    const after = currentElement();
+    return Object.freeze({
+      sameHost: before !== null && before === after
+    });
+  },
+
   async replaceSource() {
     const before = currentElement();
     const readyCountBeforeReplacement = readyCount;

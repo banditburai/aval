@@ -4,6 +4,7 @@
 
 ```ts
 
+import type { AvalAdapterCommands } from '@pixel-point/aval-element/adapter';
 import type { AvalAdapterOptions } from '@pixel-point/aval-element/adapter';
 import type { AvalAdapterStatus } from '@pixel-point/aval-element/adapter';
 import { AvalCrossOrigin } from '@pixel-point/aval-element';
@@ -61,24 +62,7 @@ export { AvalRequestedStateChangeDetail }
 export type AvalSources = AvalSources_2;
 
 // @public (undocumented)
-export interface AvalSvelteInstance extends Readable<Readonly<AvalSvelteStatus>> {
-    // (undocumented)
-    getDiagnostics(options?: Readonly<{
-        readonly trace?: boolean;
-    }>): Readonly<AvalDiagnostics> | null;
-    // (undocumented)
-    pause(): void;
-    // (undocumented)
-    play(): Promise<void>;
-    // (undocumented)
-    prepare(options?: Readonly<AvalPrepareOptions>): Promise<RuntimeReadinessResult>;
-    // (undocumented)
-    readyFor(state: string): boolean;
-    // (undocumented)
-    send(event: string): boolean;
-    // (undocumented)
-    setState(name: string): Promise<void>;
-}
+export type AvalSvelteInstance = Readable<Readonly<AvalSvelteStatus>> & Readonly<AvalAdapterCommands>;
 
 // @public (undocumented)
 export type AvalSvelteStatus = AvalAdapterStatus;

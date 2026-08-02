@@ -1,4 +1,6 @@
 import type {
+  AvalAutoplay,
+  AvalBindings,
   AvalCrossOrigin,
   AvalErrorDetail,
   AvalFit,
@@ -58,17 +60,15 @@ export interface AvalAdapterCallbacks {
   readonly onError: AvalAdapterOptions["onError"];
 }
 
-export interface AvalAdapterSource {
-  readonly codec: AvalSourceCodec;
-  readonly src: string;
-}
-
 export interface AvalAdapterRenderOptions {
-  readonly sources: readonly Readonly<AvalAdapterSource>[];
+  readonly sources: readonly Readonly<{
+    readonly codec: AvalSourceCodec;
+    readonly src: string;
+  }>[];
   readonly sourceKey: string;
   readonly state: string | undefined;
-  readonly autoplay: boolean;
-  readonly autoBind: boolean;
+  readonly autoplay: AvalAutoplay;
+  readonly bindings: AvalBindings;
   readonly motion: AvalMotion | undefined;
   readonly fit: AvalFit | undefined;
   readonly crossOrigin: AvalCrossOrigin | undefined;
@@ -79,11 +79,13 @@ export interface AvalAdapterConfiguration {
   readonly callbacks: Readonly<AvalAdapterCallbacks>;
 }
 
+type NormalizedAvalAdapterSource = AvalAdapterRenderOptions["sources"][number];
+
 const SOURCE_CODEC_SET = new Set<string>(SOURCE_CODEC_PRIORITY);
 
 export function normalizeAvalSources(
   sources: AvalSources
-): readonly Readonly<AvalAdapterSource>[] {
+): readonly NormalizedAvalAdapterSource[] {
   if (sources === null || typeof sources !== "object" || Array.isArray(sources)) {
     throw new TypeError("AVAL adapter sources must be a codec-keyed object");
   }
@@ -95,7 +97,7 @@ export function normalizeAvalSources(
     }
   }
 
-  const normalized: AvalAdapterSource[] = [];
+  const normalized: NormalizedAvalAdapterSource[] = [];
   for (const codec of SOURCE_CODEC_PRIORITY) {
     if (!Object.prototype.hasOwnProperty.call(sources, codec)) continue;
     const value = sources[codec];
@@ -132,8 +134,8 @@ export function createAvalAdapterConfiguration(
     sources,
     sourceKey: JSON.stringify(sources.map(({ codec, src }) => [codec, src])),
     state: options.state,
-    autoplay: options.autoplay ?? true,
-    autoBind: options.autoBind ?? true,
+    autoplay: options.autoplay === false ? "manual" : "visible",
+    bindings: options.autoBind === false ? "none" : "auto",
     motion: options.motion,
     fit: options.fit,
     crossOrigin: options.crossOrigin
@@ -156,7 +158,7 @@ export function sameAvalRenderOptions(
   return left.sourceKey === right.sourceKey &&
     left.state === right.state &&
     left.autoplay === right.autoplay &&
-    left.autoBind === right.autoBind &&
+    left.bindings === right.bindings &&
     left.motion === right.motion &&
     left.fit === right.fit &&
     left.crossOrigin === right.crossOrigin;

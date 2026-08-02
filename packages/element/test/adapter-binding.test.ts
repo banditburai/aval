@@ -19,8 +19,22 @@ import type {
 describe("AvalAdapterBindingImplementation", () => {
   it("has stable pre-mount state and safe command behavior", async () => {
     const binding = new AvalAdapterBindingImplementation(configuration());
+    const commands = binding.commands;
     const status = binding.getStatus();
 
+    expect(binding.commands).toBe(commands);
+    expect(Object.isFrozen(commands)).toBe(true);
+    expect(Object.keys(commands)).toEqual([
+      "prepare",
+      "setState",
+      "send",
+      "readyFor",
+      "play",
+      "pause",
+      "getDiagnostics"
+    ]);
+    binding.commit(configuration({ state: "loading" }));
+    expect(binding.commands).toBe(commands);
     expect(Object.isFrozen(status)).toBe(true);
     expect(binding.getStatus()).toBe(status);
     expect(binding.getServerStatus()).toBe(status);
@@ -30,17 +44,17 @@ describe("AvalAdapterBindingImplementation", () => {
       paused: true,
       effectivelyVisible: false
     });
-    expect(binding.send("retry")).toBe(false);
-    expect(binding.readyFor("idle")).toBe(false);
-    expect(binding.getDiagnostics()).toBeNull();
-    expect(() => binding.pause()).not.toThrow();
-    await expect(binding.prepare()).rejects.toMatchObject({
+    expect(commands.send("retry")).toBe(false);
+    expect(commands.readyFor("idle")).toBe(false);
+    expect(commands.getDiagnostics()).toBeNull();
+    expect(() => commands.pause()).not.toThrow();
+    await expect(commands.prepare()).rejects.toMatchObject({
       name: "NotReadyError"
     });
-    await expect(binding.setState("idle")).rejects.toMatchObject({
+    await expect(commands.setState("idle")).rejects.toMatchObject({
       name: "NotReadyError"
     });
-    await expect(binding.play()).rejects.toMatchObject({
+    await expect(commands.play()).rejects.toMatchObject({
       name: "NotReadyError"
     });
   });
@@ -74,6 +88,36 @@ describe("AvalAdapterBindingImplementation", () => {
     });
 
     binding.attach(element);
+  });
+
+  it("delegates every stable command with exact arguments and results", async () => {
+    const element = new TestElementPort();
+    const binding = createBinding(element);
+    const commands = binding.commands;
+    binding.attach(element);
+
+    const prepareOptions = Object.freeze({ timeoutMs: 321 });
+    const preparation = commands.prepare(prepareOptions);
+    element.resolvePreparation(0);
+    await expect(preparation).resolves.toBe(READY_RESULT);
+    await expect(commands.setState("loading")).resolves.toBeUndefined();
+    expect(commands.send("control.engage")).toBe(true);
+    expect(commands.readyFor("idle")).toBe(true);
+    await expect(commands.play()).resolves.toBeUndefined();
+    commands.pause();
+    const diagnosticsOptions = Object.freeze({ trace: true });
+    expect(() => commands.getDiagnostics(diagnosticsOptions)).toThrow(
+      element.diagnosticsError
+    );
+
+    expect(element.preparationOptions).toEqual([prepareOptions]);
+    expect(element.stateRequests).toEqual(["loading"]);
+    expect(element.sentEvents).toEqual(["control.engage"]);
+    expect(element.readinessQueries).toEqual(["idle"]);
+    expect(element.resumeCallCount).toBe(1);
+    expect(element.pauseCallCount).toBe(1);
+    expect(element.diagnosticsOptions).toEqual([diagnosticsOptions]);
+    expect(binding.commands).toBe(commands);
   });
 
   it("rolls back partial listener installation when attachment fails", () => {
@@ -348,8 +392,21 @@ class TestElementPort implements AvalAdapterBindingNode, AvalAdapterBindingEleme
   readonly #snapshotListeners = new Set<() => void>();
   readonly #preparations: Array<(result: RuntimeReadinessResult) => void> = [];
   readonly preparationSignals: Array<AbortSignal | null> = [];
+  readonly preparationOptions: Array<Readonly<{
+    readonly signal?: AbortSignal;
+    readonly timeoutMs?: number;
+  }> | undefined> = [];
+  readonly stateRequests: string[] = [];
+  readonly sentEvents: string[] = [];
+  readonly readinessQueries: string[] = [];
+  readonly diagnosticsOptions: Array<Readonly<{
+    readonly trace?: boolean;
+  }> | undefined> = [];
+  readonly diagnosticsError = new Error("diagnostics fixture result");
   readonly interactionTargetWrites: Array<Element | null> = [];
   #disposeCallCount = 0;
+  #pauseCallCount = 0;
+  #resumeCallCount = 0;
   readonly #failListenerAt: number | null;
   #interactionTarget: Element | null = null;
   #snapshot: Readonly<AvalSnapshot> = snapshot(0);
@@ -382,6 +439,14 @@ class TestElementPort implements AvalAdapterBindingNode, AvalAdapterBindingEleme
     return this.#disposeCallCount;
   }
 
+  public get pauseCallCount(): number {
+    return this.#pauseCallCount;
+  }
+
+  public get resumeCallCount(): number {
+    return this.#resumeCallCount;
+  }
+
   public addEventListener(type: string, listener: EventListener): void {
     if (this.nativeListenerCount === this.#failListenerAt) {
       throw new Error("listener failure");
@@ -398,6 +463,7 @@ class TestElementPort implements AvalAdapterBindingNode, AvalAdapterBindingEleme
   public prepare(
     options?: Readonly<{ readonly signal?: AbortSignal; readonly timeoutMs?: number }>
   ): Promise<RuntimeReadinessResult> {
+    this.preparationOptions.push(options);
     this.preparationSignals.push(options?.signal ?? null);
     return new Promise((resolve) => {
       this.#preparations.push(resolve);
@@ -408,11 +474,19 @@ class TestElementPort implements AvalAdapterBindingNode, AvalAdapterBindingEleme
     this.#preparations[index]?.(READY_RESULT);
   }
 
-  public async setState(): Promise<void> {}
-  public send(): boolean { return false; }
-  public readyFor(): boolean { return false; }
-  public pause(): void {}
-  public async resume(): Promise<void> {}
+  public async setState(name: string): Promise<void> {
+    this.stateRequests.push(name);
+  }
+  public send(event: string): boolean {
+    this.sentEvents.push(event);
+    return true;
+  }
+  public readyFor(state: string): boolean {
+    this.readinessQueries.push(state);
+    return true;
+  }
+  public pause(): void { this.#pauseCallCount += 1; }
+  public async resume(): Promise<void> { this.#resumeCallCount += 1; }
   public dispose(): void { this.#disposeCallCount += 1; }
 
   public getSnapshot(): Readonly<AvalSnapshot> {
@@ -424,8 +498,9 @@ class TestElementPort implements AvalAdapterBindingNode, AvalAdapterBindingEleme
     return () => this.#snapshotListeners.delete(listener);
   }
 
-  public getDiagnostics(): never {
-    throw new Error("Diagnostics are outside this binding fixture");
+  public getDiagnostics(options?: Readonly<{ readonly trace?: boolean }>): never {
+    this.diagnosticsOptions.push(options);
+    throw this.diagnosticsError;
   }
 
   public dispatch(type: string, detail: unknown): void {

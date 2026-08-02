@@ -4,6 +4,19 @@ import { describe, expect, it } from "vitest";
 import { useAval } from "./index.js";
 
 describe("useAval server rendering", () => {
+  it("emits canonical element defaults", () => {
+    function Fixture() {
+      const { AvalComponent } = useAval({
+        sources: { h264: "/motion/h264.avl" }
+      });
+      return <AvalComponent />;
+    }
+
+    expect(renderToString(<Fixture />)).toBe(
+      '<aval-player autoplay="visible" bindings="auto"><source src="/motion/h264.avl" data-codec="h264"/></aval-player>'
+    );
+  });
+
   it("imports without DOM globals and emits deterministic inert markup", () => {
     function Fixture() {
       const { aval, AvalComponent } = useAval({

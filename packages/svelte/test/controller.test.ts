@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createAvalAdapterConfiguration } from "@pixel-point/aval-element/adapter";
 
 import {
   createAval,
@@ -34,13 +35,25 @@ describe("createAval", () => {
     const { binding } = getControllerRecord(aval);
 
     expect(Object.isFrozen(aval)).toBe(true);
-    expect(aval.prepare).toBe(binding.prepare);
-    expect(aval.setState).toBe(binding.setState);
-    expect(aval.send).toBe(binding.send);
-    expect(aval.readyFor).toBe(binding.readyFor);
-    expect(aval.play).toBe(binding.play);
-    expect(aval.pause).toBe(binding.pause);
-    expect(aval.getDiagnostics).toBe(binding.getDiagnostics);
+    expect(Object.isFrozen(binding.commands)).toBe(true);
+    expect(aval.prepare).toBe(binding.commands.prepare);
+    expect(aval.setState).toBe(binding.commands.setState);
+    expect(aval.send).toBe(binding.commands.send);
+    expect(aval.readyFor).toBe(binding.commands.readyFor);
+    expect(aval.play).toBe(binding.commands.play);
+    expect(aval.pause).toBe(binding.commands.pause);
+    expect(aval.getDiagnostics).toBe(binding.commands.getDiagnostics);
+
+    const commands = binding.commands;
+    binding.commit(createAvalAdapterConfiguration({
+      sources: { h264: "/updated-motion.avl" },
+      state: "engaged",
+      autoplay: false,
+      autoBind: false
+    }));
+    expect(binding.commands).toBe(commands);
+    expect(aval.prepare).toBe(commands.prepare);
+    expect(aval.getDiagnostics).toBe(commands.getDiagnostics);
   });
 
   it("retains safe pre-mount command behavior", async () => {

@@ -1,9 +1,24 @@
 import { useRef } from "react";
 import {
   useAval,
+  type AvalReactInstance,
   type AvalErrorDetail,
-  type AvalSources
+  type AvalSources,
+  type UseAvalOptions
 } from "@pixel-point/aval-react";
+import type {
+  AvalAdapterController,
+  AvalAdapterOptions
+} from "@pixel-point/aval-element/adapter";
+
+declare const reactOptions: UseAvalOptions;
+declare const adapterOptions: AvalAdapterOptions;
+const adapterFromReact: AvalAdapterOptions = reactOptions;
+const reactFromAdapter: UseAvalOptions = adapterOptions;
+
+declare const reactInstance: AvalReactInstance;
+const controllerFromReact: AvalAdapterController = reactInstance;
+void [adapterFromReact, reactFromAdapter, controllerFromReact];
 
 const sources = {
   av1: "/motion/av1.avl",

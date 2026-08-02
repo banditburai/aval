@@ -33,8 +33,8 @@
     // Svelte otherwise applies native video's boolean autoplay serializer.
     // HTML attribute names are case-insensitive, so this becomes `autoplay`
     // in the DOM while retaining AVAL's string token in server markup.
-    autoPlay: renderOptions.autoplay ? "visible" : "manual",
-    bindings: renderOptions.autoBind ? "auto" : "none",
+    autoPlay: renderOptions.autoplay,
+    bindings: renderOptions.bindings,
     ...(isServer ? { width, height } : {})
   });
 

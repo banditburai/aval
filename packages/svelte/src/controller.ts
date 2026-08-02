@@ -31,13 +31,7 @@ export function createAval(
   };
   const aval: AvalSvelteInstance = Object.freeze({
     subscribe,
-    prepare: binding.prepare,
-    setState: binding.setState,
-    send: binding.send,
-    readyFor: binding.readyFor,
-    play: binding.play,
-    pause: binding.pause,
-    getDiagnostics: binding.getDiagnostics
+    ...binding.commands
   });
 
   CONTROLLER_RECORDS.set(aval, Object.freeze({ binding, readOptions }));

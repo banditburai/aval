@@ -1,11 +1,17 @@
 <script lang="ts">
   import type { ComponentProps } from "svelte";
+  import type {
+    AvalAdapterCommands,
+    AvalAdapterOptions
+  } from "@pixel-point/aval-element/adapter";
   import {
     AvalComponent,
     createAval,
     type AvalErrorDetail,
     type AvalSources,
-    type AvalSvelteStatus
+    type AvalSvelteInstance,
+    type AvalSvelteStatus,
+    type CreateAvalOptions
   } from "../src/index.js";
 
   const sources = {
@@ -21,6 +27,15 @@
       void detail.failure.code;
     }
   }));
+  const sharedCommands: AvalAdapterCommands = aval;
+  const svelteInstance: AvalSvelteInstance = aval;
+  const adapterOptions: AvalAdapterOptions = { sources };
+  const svelteOptions: CreateAvalOptions = adapterOptions;
+  const adapterFromSvelte: AvalAdapterOptions = svelteOptions;
+  void sharedCommands;
+  void svelteInstance;
+  void svelteOptions;
+  void adapterFromSvelte;
   let target: HTMLButtonElement | null = $state(null);
 
   function visualState(status: Readonly<AvalSvelteStatus>): string | null {

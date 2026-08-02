@@ -1,13 +1,114 @@
 #!/usr/bin/env node
 
 import { access, readFile, readdir, stat } from "node:fs/promises";
-import { extname, join, relative, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep
+} from "node:path";
 import { pathToFileURL } from "node:url";
+
+import { parse } from "svelte/compiler";
 
 const REMOVED_NAME = ["player", "web"].join("-");
 const REMOVED_PACKAGE = ["@pixel-point/aval", REMOVED_NAME].join("-");
 const REMOVED_DIRECTORY = ["packages", REMOVED_NAME].join("/");
 const CANONICAL_RUNTIME = "@pixel-point/aval-element";
+const CANONICAL_ADAPTER = `${CANONICAL_RUNTIME}/adapter`;
+const ADAPTER_SOURCE_PATH = "packages/element/src/adapter.ts";
+
+const FRAMEWORK_WRAPPERS = Object.freeze(["react", "svelte"]);
+
+const ALLOWED_FRAMEWORK_AVAL_IMPORTS = new Set([
+  CANONICAL_RUNTIME,
+  CANONICAL_ADAPTER
+]);
+
+const FRAMEWORK_SOURCE_EXTENSIONS = new Set([
+  ".cjs",
+  ".cts",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".mts",
+  ".svelte",
+  ".ts",
+  ".tsx"
+]);
+
+const ADAPTER_COMMAND_NAMES = Object.freeze([
+  "getDiagnostics",
+  "pause",
+  "play",
+  "prepare",
+  "readyFor",
+  "send",
+  "setState"
+]);
+const ADAPTER_COMMAND_NAME_SET = new Set(ADAPTER_COMMAND_NAMES);
+
+const REVIEWED_ADAPTER_EXPORTS = Object.freeze([
+  Object.freeze({
+    source: "./adapter-binding.js",
+    name: "AvalAdapterBinding",
+    kind: "type"
+  }),
+  Object.freeze({
+    source: "./adapter-binding.js",
+    name: "AvalAdapterCommands",
+    kind: "type"
+  }),
+  Object.freeze({
+    source: "./adapter-binding.js",
+    name: "AvalAdapterController",
+    kind: "type"
+  }),
+  Object.freeze({
+    source: "./adapter-binding.js",
+    name: "AvalAdapterStatus",
+    kind: "type"
+  }),
+  Object.freeze({
+    source: "./adapter-binding.js",
+    name: "createAvalAdapterBinding",
+    kind: "value"
+  }),
+  Object.freeze({
+    source: "./adapter-options.js",
+    name: "AvalAdapterCallbacks",
+    kind: "type"
+  }),
+  Object.freeze({
+    source: "./adapter-options.js",
+    name: "AvalAdapterConfiguration",
+    kind: "type"
+  }),
+  Object.freeze({
+    source: "./adapter-options.js",
+    name: "AvalAdapterOptions",
+    kind: "type"
+  }),
+  Object.freeze({
+    source: "./adapter-options.js",
+    name: "AvalAdapterRenderOptions",
+    kind: "type"
+  }),
+  Object.freeze({
+    source: "./adapter-options.js",
+    name: "AvalSources",
+    kind: "type"
+  }),
+  Object.freeze({
+    source: "./adapter-options.js",
+    name: "createAvalAdapterConfiguration",
+    kind: "value"
+  })
+]);
 
 const REVIEWED_PACKAGES = Object.freeze([
   Object.freeze({
@@ -44,9 +145,19 @@ const REVIEWED_PACKAGE_DIRECTORIES = new Set(
   REVIEWED_PACKAGES.map(({ directory }) => directory)
 );
 
-const ELEMENT_SOURCE_SENTINELS = Object.freeze([
-  "packages/element/src/aval-element.ts",
-  "packages/element/src/player.ts"
+const REQUIRED_ELEMENT_SOURCES = Object.freeze([
+  Object.freeze({
+    path: "packages/element/src/aval-element.ts",
+    label: "canonical element runtime source"
+  }),
+  Object.freeze({
+    path: "packages/element/src/player.ts",
+    label: "canonical element runtime source"
+  }),
+  Object.freeze({
+    path: ADAPTER_SOURCE_PATH,
+    label: "canonical element adapter source"
+  })
 ]);
 
 const GENERATED_DIRECTORY_NAMES = new Set([
@@ -131,6 +242,12 @@ export async function checkBrowserRuntimeBoundaries(
   const files = [];
   await collectTextFiles(repositoryRoot, ".", files);
   const scannedFiles = [...new Set(files)].sort(compareText);
+  await collectFrameworkProvenanceViolations(
+    repositoryRoot,
+    scannedFiles,
+    violations
+  );
+  await collectAdapterBarrelViolations(repositoryRoot, violations);
   for (const path of scannedFiles) {
     const text = await readFile(join(repositoryRoot, path), "utf8");
     if (
@@ -187,9 +304,9 @@ async function readReviewedPackageManifests(repositoryRoot) {
 }
 
 async function assertElementSourceSentinels(repositoryRoot) {
-  for (const sentinel of ELEMENT_SOURCE_SENTINELS) {
-    if (!await isFile(join(repositoryRoot, sentinel))) {
-      throw new Error(`canonical element runtime source is missing: ${sentinel}`);
+  for (const source of REQUIRED_ELEMENT_SOURCES) {
+    if (!await isFile(join(repositoryRoot, source.path))) {
+      throw new Error(`${source.label} is missing: ${source.path}`);
     }
   }
 }
@@ -219,12 +336,8 @@ function collectManifestViolations(manifests, violations) {
     }
   }
 
-  for (const wrapper of ["react", "svelte"]) {
-    const dependencies = dependencyNames(manifests.get(wrapper));
-    if (
-      dependencies.length !== 1 ||
-      dependencies[0] !== CANONICAL_RUNTIME
-    ) {
+  for (const wrapper of FRAMEWORK_WRAPPERS) {
+    if (!hasExactWrapperRuntimeDependencies(manifests.get(wrapper))) {
       violations.push(
         `packages/${wrapper} must depend exactly on ${CANONICAL_RUNTIME}`
       );
@@ -235,6 +348,335 @@ function collectManifestViolations(manifests, violations) {
 function dependencyNames(manifest) {
   if (!isJsonObject(manifest.dependencies)) return [];
   return Object.keys(manifest.dependencies).sort(compareText);
+}
+
+function hasExactWrapperRuntimeDependencies(manifest) {
+  const dependencies = dependencyNames(manifest);
+  return dependencies.length === 1 &&
+    dependencies[0] === CANONICAL_RUNTIME &&
+    isAbsentOrEmptyDependencyRecord(manifest.optionalDependencies) &&
+    isAbsentOrEmptyBundleList(manifest.bundledDependencies) &&
+    isAbsentOrEmptyBundleList(manifest.bundleDependencies);
+}
+
+function isAbsentOrEmptyDependencyRecord(value) {
+  return value === undefined ||
+    isJsonObject(value) && Object.keys(value).length === 0;
+}
+
+function isAbsentOrEmptyBundleList(value) {
+  return value === undefined || value === false ||
+    Array.isArray(value) && value.length === 0;
+}
+
+async function collectFrameworkProvenanceViolations(
+  repositoryRoot,
+  scannedFiles,
+  violations
+) {
+  const declaredCommands = new Map(FRAMEWORK_WRAPPERS.map((wrapper) => [
+    wrapper,
+    new Set()
+  ]));
+  for (const path of scannedFiles) {
+    const wrapper = frameworkProductionWrapper(path);
+    if (wrapper === null) continue;
+    const source = await readFile(join(repositoryRoot, path), "utf8");
+    const ast = parseArchitectureSource(path, source);
+    const findings = new Set();
+
+    visitAst(ast, (node) => {
+      const specifier = moduleSpecifier(node);
+      if (isDynamicModuleLoad(node) && specifier === null) {
+        findings.add(
+          "production dynamic module loads must use a static string specifier"
+        );
+      }
+      if (specifier !== null) {
+        collectModuleProvenanceFinding(
+          repositoryRoot,
+          path,
+          specifier,
+          findings
+        );
+      }
+      for (const name of declaredAdapterCommands(node)) {
+        declaredCommands.get(wrapper).add(name);
+      }
+    });
+
+    for (const finding of [...findings].sort(compareText)) {
+      violations.push(`${path}: ${finding}`);
+    }
+  }
+
+  for (const wrapper of FRAMEWORK_WRAPPERS) {
+    const commands = declaredCommands.get(wrapper);
+    if (ADAPTER_COMMAND_NAMES.every((name) => commands.has(name))) {
+      violations.push(
+        `packages/${wrapper}/src: wrapper production containers collectively restate all adapter command names`
+      );
+    }
+  }
+}
+
+function frameworkProductionWrapper(path) {
+  const wrapper = FRAMEWORK_WRAPPERS.find((candidate) =>
+    path.startsWith(`packages/${candidate}/src/`)
+  );
+  if (
+    wrapper === undefined ||
+    !FRAMEWORK_SOURCE_EXTENSIONS.has(extname(path))
+  ) {
+    return null;
+  }
+  const name = basename(path);
+  return name.includes(".test.") || name.includes(".compile.")
+    ? null
+    : wrapper;
+}
+
+function isDynamicModuleLoad(node) {
+  return node.type === "ImportExpression" ||
+    node.type === "CallExpression" &&
+    node.callee?.type === "Identifier" &&
+    node.callee.name === "require";
+}
+
+function collectModuleProvenanceFinding(
+  repositoryRoot,
+  sourcePath,
+  specifier,
+  findings
+) {
+  if (
+    isAvalModuleSpecifier(specifier) &&
+    !ALLOWED_FRAMEWORK_AVAL_IMPORTS.has(specifier)
+  ) {
+    findings.add(
+      `production AVAL imports may only target ${CANONICAL_RUNTIME} or ${CANONICAL_ADAPTER} (found ${specifier})`
+    );
+  }
+
+  if (!specifier.startsWith(".")) return;
+  const elementSource = resolve(repositoryRoot, "packages/element/src");
+  const importedPath = resolve(
+    dirname(join(repositoryRoot, sourcePath)),
+    specifier
+  );
+  if (isPathWithin(elementSource, importedPath)) {
+    findings.add(
+      `production relative imports cannot reach packages/element/src (found ${specifier})`
+    );
+  }
+}
+
+function isAvalModuleSpecifier(specifier) {
+  return specifier === "@pixel-point/aval" ||
+    specifier.startsWith("@pixel-point/aval-") ||
+    specifier.startsWith("@pixel-point/aval/");
+}
+
+function isPathWithin(root, candidate) {
+  const path = relative(root, candidate);
+  return path === "" || path !== ".." &&
+    !path.startsWith(`..${sep}`) &&
+    !isAbsolute(path);
+}
+
+function moduleSpecifier(node) {
+  switch (node.type) {
+    case "ExportAllDeclaration":
+    case "ExportNamedDeclaration":
+    case "ImportDeclaration":
+      return literalString(node.source);
+    case "ImportExpression":
+      return literalString(node.source);
+    case "TSImportType":
+      return literalString(node.argument);
+    case "TSExternalModuleReference":
+      return literalString(node.expression);
+    case "CallExpression":
+      return node.callee?.type === "Identifier" &&
+        node.callee.name === "require" &&
+        node.arguments?.length === 1
+        ? literalString(node.arguments[0])
+        : null;
+    default:
+      return null;
+  }
+}
+
+function literalString(node) {
+  if (node?.type === "Literal" && typeof node.value === "string") {
+    return node.value;
+  }
+  if (
+    node?.type === "TemplateLiteral" &&
+    node.expressions?.length === 0 &&
+    node.quasis?.length === 1
+  ) {
+    return node.quasis[0].value.cooked ?? node.quasis[0].value.raw;
+  }
+  return null;
+}
+
+function declaredAdapterCommands(node) {
+  const members = commandContainerMembers(node);
+  if (members === null) return [];
+  return members
+    .map(memberName)
+    .filter((name) => ADAPTER_COMMAND_NAME_SET.has(name));
+}
+
+function commandContainerMembers(node) {
+  switch (node.type) {
+    case "ClassBody":
+    case "TSInterfaceBody":
+      return node.body;
+    case "ObjectExpression":
+      return node.properties;
+    case "TSTypeLiteral":
+      return node.members;
+    default:
+      return null;
+  }
+}
+
+function memberName(member) {
+  if (!isJsonObject(member) || !("key" in member)) return null;
+  const key = member.key;
+  if (key?.type === "Identifier" && member.computed !== true) return key.name;
+  return literalString(key);
+}
+
+async function collectAdapterBarrelViolations(repositoryRoot, violations) {
+  const source = await readFile(
+    join(repositoryRoot, ADAPTER_SOURCE_PATH),
+    "utf8"
+  );
+  const ast = parseArchitectureSource(ADAPTER_SOURCE_PATH, source);
+  const body = scriptProgramBody(ast, ADAPTER_SOURCE_PATH);
+  const actualExports = [];
+  let hasExactBarrelShape = true;
+  let hasPublicTypesReexport = false;
+  let hasStarExport = false;
+
+  for (const node of body) {
+    if (node.type === "ExportAllDeclaration") {
+      hasStarExport = true;
+      hasExactBarrelShape = false;
+      if (isPublicTypesModule(literalString(node.source))) {
+        hasPublicTypesReexport = true;
+      }
+      continue;
+    }
+    if (
+      node.type !== "ExportNamedDeclaration" ||
+      node.declaration !== null ||
+      !Array.isArray(node.specifiers)
+    ) {
+      hasExactBarrelShape = false;
+      continue;
+    }
+
+    const source = literalString(node.source);
+    if (isPublicTypesModule(source)) hasPublicTypesReexport = true;
+    if (source === null) {
+      hasExactBarrelShape = false;
+      continue;
+    }
+    for (const specifier of node.specifiers) {
+      const local = exportName(specifier.local);
+      const exported = exportName(specifier.exported);
+      if (
+        specifier.type !== "ExportSpecifier" ||
+        local === null ||
+        exported === null ||
+        local !== exported
+      ) {
+        hasExactBarrelShape = false;
+        continue;
+      }
+      actualExports.push({
+        source,
+        name: exported,
+        kind: specifier.exportKind ?? node.exportKind ?? "value"
+      });
+    }
+  }
+
+  if (hasStarExport) {
+    violations.push(`${ADAPTER_SOURCE_PATH} must not use star exports`);
+  }
+  if (hasPublicTypesReexport) {
+    violations.push(`${ADAPTER_SOURCE_PATH} must not re-export public-types`);
+  }
+  if (
+    !hasExactBarrelShape ||
+    !sameAdapterExports(actualExports, REVIEWED_ADAPTER_EXPORTS)
+  ) {
+    violations.push(
+      `${ADAPTER_SOURCE_PATH} must expose exactly the reviewed adapter API`
+    );
+  }
+}
+
+function exportName(node) {
+  if (node?.type === "Identifier") return node.name;
+  return literalString(node);
+}
+
+function isPublicTypesModule(source) {
+  return source === "./public-types" || source === "./public-types.js";
+}
+
+function sameAdapterExports(actual, expected) {
+  if (actual.length !== expected.length) return false;
+  const actualKeys = actual.map(adapterExportKey).sort(compareText);
+  const expectedKeys = expected.map(adapterExportKey).sort(compareText);
+  return actualKeys.every((key, index) => key === expectedKeys[index]);
+}
+
+function adapterExportKey(value) {
+  return JSON.stringify([value.source, value.name, value.kind]);
+}
+
+function parseArchitectureSource(path, source) {
+  const parseable = extname(path) === ".svelte"
+    ? source
+    : `<script lang="ts">\n${source}\n</script>`;
+  try {
+    return parse(parseable, { filename: path, modern: true });
+  } catch (cause) {
+    throw new Error(
+      `${path}: cannot be parsed for architecture provenance`,
+      { cause }
+    );
+  }
+}
+
+function scriptProgramBody(ast, path) {
+  const body = ast.instance?.content?.body;
+  if (!Array.isArray(body)) {
+    throw new Error(`${path}: architecture parser did not produce a script`);
+  }
+  return body;
+}
+
+function visitAst(value, visitor, visited = new WeakSet()) {
+  if ((typeof value !== "object" || value === null) || visited.has(value)) {
+    return;
+  }
+  visited.add(value);
+  if (Array.isArray(value)) {
+    for (const item of value) visitAst(item, visitor, visited);
+    return;
+  }
+  if (typeof value.type === "string") visitor(value);
+  for (const child of Object.values(value)) {
+    visitAst(child, visitor, visited);
+  }
 }
 
 async function readRequiredManifest(path, label) {

@@ -6,9 +6,17 @@ import {
   AvalPlaybackError,
   ELEMENT_DECODER_CAPACITY
 } from "../src/index.js";
+import * as adapter from "../src/adapter.js";
 import { createAvalElementClass } from "../src/aval-element.js";
 
 describe("public element API", () => {
+  it("keeps the adapter runtime entry limited to its two factories", () => {
+    expect(Object.keys(adapter).sort()).toEqual([
+      "createAvalAdapterBinding",
+      "createAvalAdapterConfiguration"
+    ]);
+  });
+
   it("freezes the prototype tag and API major", () => {
     expect(AVAL_TAG_NAME).toBe("aval-player");
     expect(AVAL_ELEMENT_API_MAJOR).toBe(1);

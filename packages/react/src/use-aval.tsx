@@ -52,14 +52,8 @@ export function useAval(options: Readonly<UseAvalOptions>): UseAvalResult {
   }, [binding]);
   const aval = useMemo<AvalReactInstance>(() => Object.freeze({
     ...status,
-    prepare: binding.prepare,
-    setState: binding.setState,
-    send: binding.send,
-    readyFor: binding.readyFor,
-    play: binding.play,
-    pause: binding.pause,
-    getDiagnostics: binding.getDiagnostics
-  }), [binding, status]);
+    ...binding.commands
+  }), [binding.commands, status]);
 
   return useMemo(() => Object.freeze({ aval, AvalComponent }), [
     aval,
@@ -113,8 +107,8 @@ type AvalHostProperties = HTMLAttributes<HTMLElement> & Readonly<{
   motion: AvalAdapterRenderOptions["motion"];
   fit: AvalAdapterRenderOptions["fit"];
   crossorigin: AvalAdapterRenderOptions["crossOrigin"];
-  autoplay: "visible" | "manual";
-  bindings: "auto" | "none";
+  autoplay: AvalAdapterRenderOptions["autoplay"];
+  bindings: AvalAdapterRenderOptions["bindings"];
   width: number | undefined;
   height: number | undefined;
 }>;
@@ -133,8 +127,8 @@ function hostProperties(
     motion: render.motion,
     fit: render.fit,
     crossorigin: render.crossOrigin,
-    autoplay: render.autoplay ? "visible" : "manual",
-    bindings: render.autoBind ? "auto" : "none",
+    autoplay: render.autoplay,
+    bindings: render.bindings,
     width,
     height
   };

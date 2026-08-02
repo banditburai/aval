@@ -1,13 +1,9 @@
 import type {
+  AvalAdapterCommands,
   AvalAdapterOptions,
   AvalAdapterStatus,
   AvalSources as AdapterAvalSources
 } from "@pixel-point/aval-element/adapter";
-import type {
-  AvalDiagnostics,
-  AvalPrepareOptions,
-  RuntimeReadinessResult
-} from "@pixel-point/aval-element";
 import type { Readable } from "svelte/store";
 import type { HTMLAttributes } from "svelte/elements";
 
@@ -19,20 +15,8 @@ export type AvalSvelteStatus = AvalAdapterStatus;
 
 export type AvalBindingTarget = Element | null;
 
-export interface AvalSvelteInstance
-  extends Readable<Readonly<AvalSvelteStatus>> {
-  prepare(
-    options?: Readonly<AvalPrepareOptions>
-  ): Promise<RuntimeReadinessResult>;
-  setState(name: string): Promise<void>;
-  send(event: string): boolean;
-  readyFor(state: string): boolean;
-  play(): Promise<void>;
-  pause(): void;
-  getDiagnostics(
-    options?: Readonly<{ readonly trace?: boolean }>
-  ): Readonly<AvalDiagnostics> | null;
-}
+export type AvalSvelteInstance =
+  Readable<Readonly<AvalSvelteStatus>> & Readonly<AvalAdapterCommands>;
 
 export interface AvalComponentProps
   extends Omit<

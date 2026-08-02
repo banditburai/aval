@@ -58,7 +58,14 @@ describe("AVAL adapter options", () => {
   it("validates adapter booleans and applies their defaults", () => {
     expect(createAvalAdapterConfiguration({
       sources: { h264: "/motion.avl" }
-    }).render).toMatchObject({ autoplay: true, autoBind: true });
+    }).render).toMatchObject({ autoplay: "visible", bindings: "auto" });
+    const manual = createAvalAdapterConfiguration({
+      sources: { h264: "/motion.avl" },
+      autoplay: false,
+      autoBind: false
+    }).render;
+    expect(manual).toMatchObject({ autoplay: "manual", bindings: "none" });
+    expect(manual).not.toHaveProperty("autoBind");
     expect(() => createAvalAdapterConfiguration({
       sources: { h264: "/motion.avl" },
       autoplay: "yes"
@@ -110,10 +117,18 @@ describe("AVAL adapter options", () => {
     const changed = createAvalAdapterConfiguration({
       sources: { h264: "/other.avl", av1: "/motion-av1.avl" }
     });
+    const changedTokens = createAvalAdapterConfiguration({
+      sources: { h264: "/motion.avl", av1: "/motion-av1.avl" },
+      autoplay: false,
+      autoBind: false
+    });
 
     expect(first.render.sourceKey).toBe(second.render.sourceKey);
     expect(first.render).not.toBe(second.render);
     expect(sameAvalRenderOptions(first.render, second.render)).toBe(true);
     expect(sameAvalRenderOptions(first.render, changed.render)).toBe(false);
+    expect(sameAvalRenderOptions(first.render, changedTokens.render)).toBe(
+      false
+    );
   });
 });

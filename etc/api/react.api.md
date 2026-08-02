@@ -4,6 +4,8 @@
 
 ```ts
 
+import type { AvalAdapterController } from '@pixel-point/aval-element/adapter';
+import type { AvalAdapterOptions } from '@pixel-point/aval-element/adapter';
 import { AvalCrossOrigin } from '@pixel-point/aval-element';
 import { AvalDiagnostics } from '@pixel-point/aval-element';
 import { AvalErrorDetail } from '@pixel-point/aval-element';
@@ -11,6 +13,7 @@ import { AvalFit } from '@pixel-point/aval-element';
 import { AvalMotion } from '@pixel-point/aval-element';
 import { AvalPrepareOptions } from '@pixel-point/aval-element';
 import { AvalRequestedStateChangeDetail } from '@pixel-point/aval-element';
+import type { AvalSources as AvalSources_2 } from '@pixel-point/aval-element/adapter';
 import { AvalTransitionDetail } from '@pixel-point/aval-element';
 import { AvalVisualStateChangeDetail } from '@pixel-point/aval-element';
 import type { ComponentType } from 'react';
@@ -45,62 +48,12 @@ export { AvalMotion }
 export { AvalPrepareOptions }
 
 // @public (undocumented)
-export interface AvalReactInstance {
-    // (undocumented)
-    readonly effectivelyVisible: boolean;
-    // (undocumented)
-    readonly eventNames: readonly string[];
-    // (undocumented)
-    getDiagnostics(options?: Readonly<{
-        readonly trace?: boolean;
-    }>): Readonly<AvalDiagnostics> | null;
-    // (undocumented)
-    readonly isTransitioning: boolean;
-    // (undocumented)
-    readonly lastError: Readonly<AvalErrorDetail> | null;
-    // (undocumented)
-    readonly mounted: boolean;
-    // (undocumented)
-    pause(): void;
-    // (undocumented)
-    readonly paused: boolean;
-    // (undocumented)
-    play(): Promise<void>;
-    // (undocumented)
-    prepare(options?: Readonly<AvalPrepareOptions>): Promise<RuntimeReadinessResult>;
-    // (undocumented)
-    readonly readiness: RuntimeReadiness;
-    // (undocumented)
-    readyFor(state: string): boolean;
-    // (undocumented)
-    readonly requestedState: string | null;
-    // (undocumented)
-    send(event: string): boolean;
-    // (undocumented)
-    setState(name: string): Promise<void>;
-    // (undocumented)
-    readonly stateNames: readonly string[];
-    // (undocumented)
-    readonly visualState: string | null;
-}
+export type AvalReactInstance = AvalAdapterController;
 
 export { AvalRequestedStateChangeDetail }
 
 // @public (undocumented)
-export type AvalSources = Readonly<{
-    readonly av1?: string;
-    readonly vp9?: string;
-    readonly h265?: string;
-    readonly h264?: string;
-}> & (Readonly<{
-    readonly av1: string;
-}> | Readonly<{
-    readonly vp9: string;
-}> | Readonly<{
-    readonly h265: string;
-}> | Readonly<{
-    readonly h264: string;
-}>);
+export type AvalSources = AvalSources_2;
 
 export { AvalTransitionDetail }
 
@@ -114,34 +67,7 @@ export { RuntimeReadinessResult }
 export function useAval(options: Readonly<UseAvalOptions>): UseAvalResult;
 
 // @public (undocumented)
-export interface UseAvalOptions {
-    // (undocumented)
-    readonly autoBind?: boolean;
-    // (undocumented)
-    readonly autoplay?: boolean;
-    // (undocumented)
-    readonly crossOrigin?: AvalCrossOrigin;
-    // (undocumented)
-    readonly fit?: AvalFit;
-    // (undocumented)
-    readonly motion?: AvalMotion;
-    // (undocumented)
-    readonly onError?: (detail: Readonly<AvalErrorDetail>) => void;
-    // (undocumented)
-    readonly onReady?: (result: Readonly<RuntimeReadinessResult>) => void;
-    // (undocumented)
-    readonly onRequestedStateChange?: (detail: Readonly<AvalRequestedStateChangeDetail>) => void;
-    // (undocumented)
-    readonly onTransitionEnd?: (detail: Readonly<AvalTransitionDetail>) => void;
-    // (undocumented)
-    readonly onTransitionStart?: (detail: Readonly<AvalTransitionDetail>) => void;
-    // (undocumented)
-    readonly onVisualStateChange?: (detail: Readonly<AvalVisualStateChangeDetail>) => void;
-    // (undocumented)
-    readonly sources: AvalSources;
-    // (undocumented)
-    readonly state?: string;
-}
+export type UseAvalOptions = AvalAdapterOptions;
 
 // @public (undocumented)
 export interface UseAvalResult {

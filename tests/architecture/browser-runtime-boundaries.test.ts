@@ -4,7 +4,7 @@ import {
   rm,
   writeFile
 } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -13,6 +13,57 @@ import { checkBrowserRuntimeBoundaries } from
   "../../scripts/architecture/check-browser-runtime-boundaries.mjs";
 
 const roots: string[] = [];
+
+const CANONICAL_ADAPTER_SOURCE = `export {
+  createAvalAdapterConfiguration,
+  type AvalAdapterCallbacks,
+  type AvalAdapterConfiguration,
+  type AvalAdapterOptions,
+  type AvalAdapterRenderOptions,
+  type AvalSources
+} from "./adapter-options.js";
+export {
+  createAvalAdapterBinding,
+  type AvalAdapterBinding,
+  type AvalAdapterCommands,
+  type AvalAdapterController,
+  type AvalAdapterStatus
+} from "./adapter-binding.js";
+`;
+
+const COMMAND_INTERFACE_SOURCE = `export interface DuplicateCommands {
+  prepare(): void;
+  setState(): void;
+  send(): void;
+  readyFor(): void;
+  play(): void;
+  pause(): void;
+  getDiagnostics(): void;
+}
+`;
+
+const COMMAND_OBJECT_SOURCE = `const duplicateCommands = {
+  prepare() {},
+  setState() {},
+  send() {},
+  readyFor() {},
+  play() {},
+  pause() {},
+  getDiagnostics() {}
+};
+void duplicateCommands;
+`;
+
+const COMMAND_CLASS_SOURCE = `export class DuplicateCommands {
+  prepare() {}
+  setState() {}
+  send() {}
+  readyFor() {}
+  play() {}
+  pause() {}
+  getDiagnostics() {}
+}
+`;
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) =>
@@ -63,6 +114,15 @@ describe("browser runtime architecture", () => {
     }
   );
 
+  it("requires the reviewed element adapter source", async () => {
+    const root = await architectureFixture();
+    await rm(join(root, "packages", "element", "src", "adapter.ts"));
+
+    await expect(checkBrowserRuntimeBoundaries(root)).rejects.toThrow(
+      "canonical element adapter source is missing: packages/element/src/adapter.ts"
+    );
+  });
+
   it.each(["react", "svelte"] as const)(
     "requires the %s wrapper to depend only on element",
     async (wrapper) => {
@@ -77,6 +137,240 @@ describe("browser runtime architecture", () => {
 
       await expect(checkBrowserRuntimeBoundaries(root)).rejects.toThrow(
         new RegExp(`packages/${wrapper} must depend exactly on @pixel-point/aval-element`, "u")
+      );
+    }
+  );
+
+  it.each([
+    Object.freeze({
+      field: "optionalDependencies",
+      value: Object.freeze({ "@pixel-point/aval-format": "1.0.0" })
+    }),
+    Object.freeze({
+      field: "bundledDependencies",
+      value: Object.freeze(["@pixel-point/aval-format"])
+    }),
+    Object.freeze({
+      field: "bundleDependencies",
+      value: Object.freeze(["@pixel-point/aval-format"])
+    })
+  ] as const)(
+    "rejects wrapper runtime dependencies hidden in $field",
+    async ({ field, value }) => {
+      const root = await architectureFixture();
+      await writePackageManifest(root, "react", {
+        name: "@pixel-point/aval-react",
+        dependencies: { "@pixel-point/aval-element": "1.0.0" },
+        [field]: value
+      });
+
+      await expect(checkBrowserRuntimeBoundaries(root)).rejects.toThrow(
+        "packages/react must depend exactly on @pixel-point/aval-element"
+      );
+    }
+  );
+
+  it.each([
+    Object.freeze({
+      wrapper: "react",
+      sourcePath: "src/invalid-import.tsx",
+      module: "@pixel-point/aval-format"
+    }),
+    Object.freeze({
+      wrapper: "svelte",
+      sourcePath: "src/InvalidImport.svelte",
+      module: "@pixel-point/aval-element/auto"
+    })
+  ] as const)(
+    "rejects $wrapper production imports from $module",
+    async ({ wrapper, sourcePath, module }) => {
+      const root = await architectureFixture();
+      const source = sourcePath.endsWith(".svelte")
+        ? `<script lang="ts">import ${JSON.stringify(module)};</script>\n`
+        : `import ${JSON.stringify(module)};\n`;
+      await writePackageSource(root, wrapper, sourcePath, source);
+
+      await expect(checkBrowserRuntimeBoundaries(root)).rejects.toThrow(
+        `packages/${wrapper}/${sourcePath}: production AVAL imports may only target`
+      );
+    }
+  );
+
+  it.each(["react", "svelte"] as const)(
+    "rejects %s production relative imports into element source",
+    async (wrapper) => {
+      const root = await architectureFixture();
+      await writePackageSource(
+        root,
+        wrapper,
+        "src/relative-import.ts",
+        `import "../../element/src/player.js";\n`
+      );
+
+      await expect(checkBrowserRuntimeBoundaries(root)).rejects.toThrow(
+        `packages/${wrapper}/src/relative-import.ts: production relative imports cannot reach packages/element/src`
+      );
+    }
+  );
+
+  it.each([
+    Object.freeze({
+      label: "import()",
+      source: `const moduleName = "@pixel-point/aval-element";\nvoid import(moduleName);\n`
+    }),
+    Object.freeze({
+      label: "require()",
+      source: `const moduleName = "@pixel-point/aval-element";\nvoid require(moduleName);\n`
+    })
+  ])(
+    "rejects a computed $label module load in wrapper production",
+    async ({ source }) => {
+      const root = await architectureFixture();
+      await writePackageSource(
+        root,
+        "react",
+        "src/computed-module.ts",
+        source
+      );
+
+      await expect(checkBrowserRuntimeBoundaries(root)).rejects.toThrow(
+        "packages/react/src/computed-module.ts: production dynamic module loads must use a static string specifier"
+      );
+    }
+  );
+
+  it.each([
+    Object.freeze({
+      wrapper: "react",
+      sourcePath: "src/interface-commands.tsx",
+      source: COMMAND_INTERFACE_SOURCE
+    }),
+    Object.freeze({
+      wrapper: "svelte",
+      sourcePath: "src/ObjectCommands.svelte",
+      source: `<script lang="ts">${COMMAND_OBJECT_SOURCE}</script>\n`
+    }),
+    Object.freeze({
+      wrapper: "react",
+      sourcePath: "src/class-commands.ts",
+      source: COMMAND_CLASS_SOURCE
+    })
+  ] as const)(
+    "rejects a command restatement in $sourcePath",
+    async ({ wrapper, sourcePath, source }) => {
+      const root = await architectureFixture();
+      await writePackageSource(root, wrapper, sourcePath, source);
+
+      await expect(checkBrowserRuntimeBoundaries(root)).rejects.toThrow(
+        `packages/${wrapper}/src: wrapper production containers collectively restate all adapter command names`
+      );
+    }
+  );
+
+  it("rejects adapter command restatement split across wrapper files", async () => {
+    const root = await architectureFixture();
+    await Promise.all([
+      writePackageSource(
+        root,
+        "react",
+        "src/command-group-a.ts",
+        `interface FirstCommands {\n  prepare(): void;\n  setState(): void;\n  send(): void;\n  readyFor(): void;\n}\n`
+      ),
+      writePackageSource(
+        root,
+        "react",
+        "src/command-group-b.ts",
+        `const secondCommands = {\n  play() {},\n  pause() {},\n  getDiagnostics() {}\n};\nvoid secondCommands;\n`
+      )
+    ]);
+
+    await expect(checkBrowserRuntimeBoundaries(root)).rejects.toThrow(
+      "packages/react/src: wrapper production containers collectively restate all adapter command names"
+    );
+  });
+
+  it("does not aggregate command declarations across framework packages", async () => {
+    const root = await architectureFixture();
+    await Promise.all([
+      writePackageSource(
+        root,
+        "react",
+        "src/partial-commands.ts",
+        `interface ReactCommands {\n  prepare(): void;\n  setState(): void;\n  send(): void;\n  readyFor(): void;\n}\n`
+      ),
+      writePackageSource(
+        root,
+        "svelte",
+        "src/partial-commands.ts",
+        `interface SvelteCommands {\n  play(): void;\n  pause(): void;\n  getDiagnostics(): void;\n}\n`
+      )
+    ]);
+
+    await expect(checkBrowserRuntimeBoundaries(root)).resolves.toMatchObject({
+      status: "passed"
+    });
+  });
+
+  it("excludes compile contracts and tests from production provenance", async () => {
+    const root = await architectureFixture();
+    const excludedSource = `
+import "@pixel-point/aval-format";
+${COMMAND_OBJECT_SOURCE}
+const node = <div />;
+void node;
+`;
+    await Promise.all([
+      writePackageSource(
+        root,
+        "react",
+        "src/public-api.compile.tsx",
+        excludedSource
+      ),
+      writePackageSource(
+        root,
+        "react",
+        "src/ssr.test.tsx",
+        excludedSource
+      )
+    ]);
+
+    await expect(checkBrowserRuntimeBoundaries(root)).resolves.toMatchObject({
+      status: "passed"
+    });
+  });
+
+  it.each([
+    Object.freeze({
+      label: "an extra adapter export",
+      source: `${CANONICAL_ADAPTER_SOURCE}\nexport type { AvalAdapterBindingEnvironment } from "./adapter-binding.js";\n`,
+      expected: /adapter\.ts must expose exactly the reviewed adapter API/u
+    }),
+    Object.freeze({
+      label: "a missing adapter export",
+      source: CANONICAL_ADAPTER_SOURCE.replace(
+        "  type AvalAdapterStatus\n",
+        ""
+      ),
+      expected: /adapter\.ts must expose exactly the reviewed adapter API/u
+    }),
+    Object.freeze({
+      label: "a star export",
+      source: `${CANONICAL_ADAPTER_SOURCE}\nexport * from "./public-types.js";\n`,
+      expected: /adapter\.ts must not use star exports/u
+    }),
+    Object.freeze({
+      label: "a public-types reexport",
+      source: `${CANONICAL_ADAPTER_SOURCE}\nexport type { AvalCrossOrigin } from "./public-types.js";\n`,
+      expected: /adapter\.ts must not re-export public-types/u
+    })
+  ])(
+    "rejects $label from the element adapter barrel",
+    async ({ source, expected }) => {
+      const root = await architectureFixture();
+      await writePackageSource(root, "element", "src/adapter.ts", source);
+
+      await expect(checkBrowserRuntimeBoundaries(root)).rejects.toThrow(
+        expected
       );
     }
   );
@@ -211,7 +505,20 @@ async function architectureFixture(): Promise<string> {
   await mkdir(elementSource, { recursive: true });
   await Promise.all([
     writeFile(join(elementSource, "aval-element.ts"), "export {};\n"),
-    writeFile(join(elementSource, "player.ts"), "export {};\n")
+    writeFile(join(elementSource, "player.ts"), "export {};\n"),
+    writeFile(join(elementSource, "adapter.ts"), CANONICAL_ADAPTER_SOURCE),
+    writePackageSource(
+      root,
+      "react",
+      "src/index.ts",
+      `export type { AvalCrossOrigin } from "@pixel-point/aval-element";\nexport { createAvalAdapterBinding } from "@pixel-point/aval-element/adapter";\n`
+    ),
+    writePackageSource(
+      root,
+      "svelte",
+      "src/AvalComponent.svelte",
+      `<script lang="ts">import { createAvalAdapterBinding } from "@pixel-point/aval-element/adapter"; void createAvalAdapterBinding;</script>\n`
+    )
   ]);
   return root;
 }
@@ -224,6 +531,17 @@ async function writePackageManifest(
   const packageRoot = join(root, "packages", directory);
   await mkdir(packageRoot, { recursive: true });
   await writeFile(join(packageRoot, "package.json"), JSON.stringify(manifest));
+}
+
+async function writePackageSource(
+  root: string,
+  directory: string,
+  sourcePath: string,
+  source: string
+): Promise<void> {
+  const path = join(root, "packages", directory, sourcePath);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, source);
 }
 
 async function temporaryRoot(prefix: string): Promise<string> {

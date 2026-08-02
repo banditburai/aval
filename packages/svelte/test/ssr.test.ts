@@ -37,6 +37,16 @@ describe("AvalComponent SSR", () => {
     );
   });
 
+  it("renders the canonical default element tokens", () => {
+    const aval = createAval(() => ({
+      sources: { h264: "/motion.avl" }
+    }));
+
+    const { body } = render(AvalComponent, { props: { aval } });
+
+    expect(body).toContain('autoPlay="visible" bindings="auto"');
+  });
+
   it("rejects controllers not created by createAval", () => {
     expect(() => render(AvalComponent, {
       props: {

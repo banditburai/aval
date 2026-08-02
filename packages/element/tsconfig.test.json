@@ -8,6 +8,9 @@
       ],
       "@pixel-point/aval-element/auto": [
         "./src/auto.ts"
+      ],
+      "@pixel-point/aval-element/adapter": [
+        "./src/adapter.ts"
       ]
     },
     "types": [
