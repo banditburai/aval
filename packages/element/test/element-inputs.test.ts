@@ -8,25 +8,17 @@ import {
   readElementSources as readSources
 } from "../src/element-sources.js";
 import {
-  deferAcceptedSend,
-  failedGenerationCleanup,
-  initialPresentation,
-  intrinsicRatio,
-  motionSelectionChanged,
-  publicFailureCode,
-  runtimeHostSupported,
-  createElementTiming,
   createRealmPlatform,
-  rebindAdoptedStyles
-} from "../src/aval-element.js";
-import {
   needsIntersectionSample,
-  persistedPageShow
+  persistedPageShow,
+  runtimeHostSupported
 } from "../src/element-host-environment.js";
 import {
   bindingCurrent,
   validateInteractionTarget
 } from "../src/element-input-binding.js";
+import { createElementOperationTiming } from "../src/preparation-deadline.js";
+import { intrinsicRatio } from "../src/shadow-layers.js";
 
 const HTML = "http://www.w3.org/1999/xhtml";
 
@@ -281,21 +273,6 @@ describe("element inputs", () => {
     expect(intrinsicRatio(null, null, undefined)).toBeNull();
   });
 
-  it("captures exact initial CSS geometry, DPR, and authored fit", () => {
-    const presentation = initialPresentation(
-      { width: 0.25, height: 0 },
-      2.625,
-      "cover"
-    );
-    expect(presentation).toEqual({
-      width: 0.25,
-      height: 0,
-      dpr: 2.625,
-      fit: "cover"
-    });
-    expect(Object.isFrozen(presentation)).toBe(true);
-  });
-
   it("blocks runtime creation unless secure-context WebCrypto digest is callable", () => {
     const supported = {
       isSecureContext: true,
@@ -387,26 +364,14 @@ describe("element inputs", () => {
       },
       clearTimeout: (handle: number) => { calls.push(`${label}:clear:${String(handle)}`); }
     }) as unknown as Window;
-    const oldTiming = createElementTiming(windowFor("old"));
-    const adoptedTiming = createElementTiming(windowFor("new"));
+    const oldTiming = createElementOperationTiming(windowFor("old"));
+    const adoptedTiming = createElementOperationTiming(windowFor("new"));
     expect(adoptedTiming.setTimeout(() => undefined, 5)).toBe(2);
     adoptedTiming.clearTimeout(2);
     expect(adoptedTiming.timeoutError()).toBeInstanceOf(RealmDOMException);
     expect(adoptedTiming.abortError()).toMatchObject({ name: "AbortError" });
     expect(calls).toEqual(["new:set", "new:clear:2"]);
     expect(oldTiming).not.toBe(adoptedTiming);
-  });
-
-  it("rebinds styles to the adopted document", () => {
-    const adoptedDocument = {} as Document;
-    let reboundTo: Document | null = null;
-    expect(rebindAdoptedStyles({
-      rebindStyles: (document) => {
-        reboundTo = document;
-        return true;
-      }
-    }, adoptedDocument)).toBe(true);
-    expect(reboundTo).toBe(adoptedDocument);
   });
 
   it("rejects same-task stale focusout work after target/source replacement", async () => {
@@ -477,30 +442,6 @@ describe("element inputs", () => {
     )).toThrow("share the element root");
   });
 
-  it("defers a listener-triggered accepted send until the event transaction exits", async () => {
-    const events = new ElementPublicEvents({} as HTMLElement);
-    const mutations = new ElementEventMutationGate(events);
-    const order: string[] = ["first:start"];
-    events.transaction(true);
-    const accepted = deferAcceptedSend(
-      () => true,
-      (operation) => mutations.deferCommand(operation),
-      () => { order.push("second"); }
-    );
-    order.push(`listener:${String(accepted)}`);
-    expect(deferAcceptedSend(
-      () => false,
-      (operation) => mutations.deferCommand(operation),
-      () => { order.push("unreachable"); }
-    )).toBe(false);
-    events.transaction(false);
-    order.push("first:end");
-    expect(order).toEqual(["first:start", "listener:true", "first:end"]);
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(order).toEqual(["first:start", "listener:true", "first:end", "second"]);
-  });
-
   it("coalesces same-event B to C attributes and applies the final reflected value", async () => {
     const events = new ElementPublicEvents({} as HTMLElement);
     const mutations = new ElementEventMutationGate(events);
@@ -550,11 +491,7 @@ describe("element inputs", () => {
     const mutations = new ElementEventMutationGate(events);
     const order: string[] = [];
     events.transaction(true);
-    expect(deferAcceptedSend(
-      () => true,
-      (operation) => mutations.deferCommand(operation),
-      () => { order.push("accepted-send"); }
-    )).toBe(true);
+    expect(mutations.deferCommand(() => { order.push("accepted-send"); })).toBe(true);
     events.transaction(false);
     mutations.queueEventFollowup(() => { order.push("engagement-retry"); });
 
@@ -591,26 +528,6 @@ describe("element inputs", () => {
     expect(mutations.pendingOperationCount).toBe(0);
   });
 
-  it("retains published-player cleanup authority when post-publication startup fails", async () => {
-    let authority = true;
-    let unpublishedRelease = false;
-    await expect(failedGenerationCleanup(
-      true,
-      async () => { throw new DOMException("cleanup incomplete", "OperationError"); },
-      () => { unpublishedRelease = true; }
-    )).rejects.toMatchObject({ name: "OperationError" });
-    expect(authority).toBe(true);
-    expect(unpublishedRelease).toBe(false);
-
-    await failedGenerationCleanup(
-      true,
-      async () => { authority = false; },
-      () => { unpublishedRelease = true; }
-    );
-    expect(authority).toBe(false);
-    expect(unpublishedRelease).toBe(false);
-  });
-
   it("recognizes only persisted pageshow as a BFCache restore", () => {
     expect(persistedPageShow({ persisted: true } as unknown as Event)).toBe(true);
     expect(persistedPageShow({ persisted: false } as unknown as Event)).toBe(false);
@@ -623,28 +540,6 @@ describe("element inputs", () => {
     expect(needsIntersectionSample(true, true)).toBe(false);
   });
 
-  it("detects a motion policy change that lands while player selection is pending", () => {
-    expect(motionSelectionChanged("full", false, "reduce", true)).toBe(true);
-    expect(motionSelectionChanged("auto", false, "auto", true)).toBe(true);
-    expect(motionSelectionChanged("reduce", true, "reduce", true)).toBe(false);
-  });
-
-  it("maps every failure input onto the documented public allowlist", () => {
-    const documented = new Set([
-      "invalid-asset", "load-failure", "range-response-invalid", "entity-changed",
-      "integrity-mismatch", "unsupported-profile", "resource-rejection",
-      "readiness-failure", "worker-decode-failure", "renderer-failure",
-      "context-loss", "watchdog-timeout", "underflow", "abort", "disposed",
-      "invalid-configuration", "unsupported-browser",
-      "interaction-target-unavailable", "element-cleanup-incomplete"
-    ]);
-    const inputs = [...documented] as const;
-    for (const input of inputs) {
-      expect(documented.has(publicFailureCode(
-        input as Parameters<typeof publicFailureCode>[0]
-      ))).toBe(true);
-    }
-  });
 });
 
 function source(

@@ -1,4 +1,16 @@
 import { AVAL_SHADOW_STYLE } from "./shadow-style.js";
+import type { Metadata } from "./player-contract.js";
+
+export function intrinsicRatio(
+  width: number | null,
+  height: number | null,
+  canvas: Readonly<Metadata["canvas"]> | undefined
+): number | null {
+  if (width !== null && height !== null) return width / height;
+  if (canvas === undefined) return null;
+  return canvas.width * canvas.pixelAspect[0] /
+    canvas.pixelAspect[1] / canvas.height;
+}
 
 export class ShadowLayerOwner {
   public readonly root: ShadowRoot;

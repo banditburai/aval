@@ -2,6 +2,17 @@ import type { AvalPublicFailure } from "./public-types.js";
 
 const PLAYBACK_ERROR_MESSAGE = "aval-player playback could not continue";
 
+export function createAvalPublicFailure(
+  code: AvalPublicFailure["code"],
+  operation: string
+): Readonly<AvalPublicFailure> {
+  return Object.freeze({
+    code,
+    message: `AVAL operation failed (${code})`,
+    operation
+  });
+}
+
 export class AvalPlaybackError extends Error {
   public readonly failure: Readonly<AvalPublicFailure>;
   public readonly generation: number;

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   PreparationGate,
   PreparationDeadline,
+  isElementAbort,
+  isElementPreparationTimeout,
   preparationTimeout
 } from "../src/preparation-deadline.js";
 
@@ -31,6 +33,20 @@ describe("PreparationGate", () => {
 });
 
 describe("PreparationDeadline", () => {
+  it("classifies errors structurally across realm prototype boundaries", () => {
+    const abort: { name: string } = Object.create(null);
+    abort.name = "AbortError";
+    const timeout: { name: string } = Object.create(null);
+    timeout.name = "TimeoutError";
+
+    expect(abort instanceof Object).toBe(false);
+    expect(timeout instanceof Object).toBe(false);
+    expect(isElementAbort(abort)).toBe(true);
+    expect(isElementPreparationTimeout(timeout)).toBe(true);
+    expect(isElementAbort(timeout)).toBe(false);
+    expect(isElementPreparationTimeout(abort)).toBe(false);
+  });
+
   it("starts an immediate deadline when it is created", () => {
     const clock = new ManualClock();
     const deadline = PreparationDeadline.begin({

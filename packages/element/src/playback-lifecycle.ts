@@ -82,3 +82,18 @@ export function retainPlaybackLifecycleCounters(
     ]
   });
 }
+
+export function resumeCurrent(
+  expectedSequence: number,
+  currentSequence: number,
+  manualPlaying: boolean,
+  effectivelyVisible: boolean,
+  expectedPlayer: object,
+  currentPlayer: object | null,
+  suspendedPlayer: object | null,
+  suspendingPlayer: object | null
+): boolean {
+  return expectedSequence === currentSequence && manualPlaying &&
+    effectivelyVisible && expectedPlayer === currentPlayer &&
+    expectedPlayer !== suspendedPlayer && expectedPlayer !== suspendingPlayer;
+}

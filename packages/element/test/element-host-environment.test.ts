@@ -24,6 +24,8 @@ describe("ElementHostEnvironment", () => {
     expect(harness.resizes).toHaveLength(1);
     expect(harness.intersections).toHaveLength(1);
     expect(harness.callbacks.geometryChanged).toHaveBeenCalledTimes(1);
+    expect(owner.geometry).toEqual({ width: 120, height: 90, dpr: 1.5 });
+    expect(Object.isFrozen(owner.geometry)).toBe(true);
     expect(owner.snapshot()).toMatchObject({
       installed: true,
       positiveBox: true,
@@ -42,6 +44,7 @@ describe("ElementHostEnvironment", () => {
       height: 0,
       dpr: 2
     });
+    expect(owner.geometry).toEqual({ width: 80, height: 0, dpr: 2 });
     expect(owner.snapshot().positiveBox).toBe(false);
   });
 

@@ -608,6 +608,33 @@ describe("element lifecycle regressions", () => {
     expect.soft(prepare).toBeLessThan(publish);
   });
 
+  it("replaces a retiring player after a synchronous reconnect edge", async () => {
+    harness.brokerMode = "immediate";
+    const { element } = createConnectedElement("motion.avl");
+    await element.prepare();
+    const first = playerAt(0);
+    let reconnected = false;
+    const unsubscribe = element.subscribe(() => {
+      if (reconnected || element.getSnapshot().connected) return;
+      reconnected = true;
+      element.isConnected = true;
+      element.connectedCallback();
+    });
+
+    element.isConnected = false;
+    element.disconnectedCallback();
+
+    await eventually(() => reconnected && harness.players.length === 2);
+    await expect(element.prepare()).resolves.toMatchObject({ mode: "animated" });
+    unsubscribe();
+    expect(first.disposed()).toBe(true);
+    expect(element.getSnapshot()).toMatchObject({
+      connected: true,
+      generation: 2,
+      readiness: "interactiveReady"
+    });
+  });
+
   it("transfers touch hover ownership on document pointerdown", async () => {
     harness.brokerMode = "immediate";
     harness.bindings.push(
@@ -1064,6 +1091,14 @@ describe("element lifecycle regressions", () => {
     expect(diagnosticsAfterCleanup[1]).toBe(probeAtEvent);
     expect(diagnosticsAfterCleanup[2]).toBe(laterProbeAtEvent);
 
+    const replacementAtEvent: {
+      current: ReturnType<AvalElement["getDiagnostics"]> | null;
+    } = { current: null };
+    element.addEventListener("readinesschange", ((event: CustomEvent) => {
+      if (event.detail.generation === 2 && replacementAtEvent.current === null) {
+        replacementAtEvent.current = element.getDiagnostics({ trace: true });
+      }
+    }) as EventListener);
     source.setAttribute("src", "replacement.avl");
     FakeMutationObserver.instances[0]!.enqueue(attributeMutation(source));
     await expect(element.prepare()).resolves.toMatchObject({ mode: "animated" });
@@ -1074,6 +1109,20 @@ describe("element lifecycle regressions", () => {
     expect(replacementDiagnostics.runtime.decoderDiagnostics).not.toBe(
       diagnosticsAfterCleanup
     );
+    expect(replacementAtEvent.current).toMatchObject({
+      sourceGeneration: 2,
+      lastFailure: null,
+      runtime: { decoderDiagnostics: [] }
+    });
+    const replacementTrace = replacementAtEvent.current?.elementTrace ?? [];
+    const sourceStart = replacementTrace.findIndex((record) =>
+      record.generation === 2 && record.kind === "source-start"
+    );
+    const publication = replacementTrace.findIndex((record) =>
+      record.generation === 2 && record.kind === "publish-readinesschange"
+    );
+    expect(sourceStart).toBeGreaterThanOrEqual(0);
+    expect(publication).toBeGreaterThan(sourceStart);
   });
 
   it("retains one deeply frozen renderer cause until a newer source generation", async () => {
@@ -1494,7 +1543,10 @@ function suspendedResult() {
 }
 
 function createConnectedElement(src: string): {
-  element: AvalElement;
+  element: AvalElement & FakeHTMLElement & {
+    connectedCallback(): void;
+    disconnectedCallback(): void;
+  };
   source: FakeElement;
   view: FakeWindow;
 } {
@@ -1504,6 +1556,7 @@ function createConnectedElement(src: string): {
   );
   const element = new Constructor() as AvalElement & FakeHTMLElement & {
     connectedCallback(): void;
+    disconnectedCallback(): void;
   };
   const source = new FakeElement("source", document);
   source.parentElement = element as unknown as FakeHTMLElement;

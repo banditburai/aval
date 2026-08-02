@@ -9,6 +9,13 @@ type PreparationDeadlinePlatform = Readonly<Pick<
   "setTimeout" | "clearTimeout" | "now"
 >>;
 
+export interface ElementOperationTiming {
+  readonly setTimeout: (callback: () => void, delay: number) => number;
+  readonly clearTimeout: (handle: number) => void;
+  readonly timeoutError: () => DOMException;
+  readonly abortError: () => DOMException;
+}
+
 interface PreparationDeadlineOptions {
   readonly parent: AbortSignal;
   readonly timeoutMs?: number;
@@ -146,6 +153,99 @@ export class PreparationDeadline {
 
 export function preparationTimeout(): DOMException {
   return new DOMException("AVAL preparation timed out", "TimeoutError");
+}
+
+export function createElementOperationTiming(
+  view: Window
+): Readonly<ElementOperationTiming> {
+  const realm = view as Window & Pick<typeof globalThis, "DOMException">;
+  return Object.freeze({
+    setTimeout: (callback: () => void, delay: number) =>
+      view.setTimeout(callback, delay),
+    clearTimeout: (handle: number) => view.clearTimeout(handle),
+    timeoutError: () => new realm.DOMException(
+      "AVAL preparation timed out",
+      "TimeoutError"
+    ),
+    abortError: () => new realm.DOMException(
+      "AVAL operation was aborted",
+      "AbortError"
+    )
+  });
+}
+
+export function remainingElementPreparationMs(
+  deadline: number,
+  clock: Performance,
+  timing: Readonly<ElementOperationTiming>
+): number {
+  const remaining = Math.floor(deadline - clock.now());
+  if (remaining < 1) throw timing.timeoutError();
+  return remaining;
+}
+
+export function withElementOperationLimits<T>(
+  operation: Promise<T>,
+  signal?: AbortSignal,
+  timeoutMs?: number,
+  timerChanged?: (kind: "timer-started" | "timer-settled") => void,
+  timing?: Readonly<ElementOperationTiming>
+): Promise<T> {
+  if (signal?.aborted) return Promise.reject(signal.reason);
+  if (timeoutMs !== undefined &&
+    (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1)) {
+    return Promise.reject(new RangeError("timeoutMs must be a positive integer"));
+  }
+  if (signal === undefined && timeoutMs === undefined) return operation;
+  if (timing === undefined && timeoutMs !== undefined) {
+    return Promise.reject(new Error("AVAL owner window is unavailable"));
+  }
+  return new Promise<T>((resolve, reject) => {
+    let timer: number | null = null;
+    let settled = false;
+    const cleanup = (): void => {
+      signal?.removeEventListener("abort", abort);
+      if (timer === null) return;
+      timing!.clearTimeout(timer);
+      timer = null;
+      timerChanged?.("timer-settled");
+    };
+    const accept = (value: T): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const decline = (reason: unknown): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(reason);
+    };
+    const abort = (): void => decline(
+      signal?.reason ?? timing?.abortError() ?? elementAbortError()
+    );
+    signal?.addEventListener("abort", abort, { once: true });
+    if (timeoutMs !== undefined) {
+      timer = timing!.setTimeout(() => decline(timing!.timeoutError()), timeoutMs);
+      timerChanged?.("timer-started");
+    }
+    operation.then(accept, decline);
+  });
+}
+
+export function elementAbortError(): DOMException {
+  return new DOMException("AVAL operation was aborted", "AbortError");
+}
+
+export function isElementAbort(error: unknown): boolean {
+  return typeof error === "object" && error !== null &&
+    "name" in error && error.name === "AbortError";
+}
+
+export function isElementPreparationTimeout(error: unknown): boolean {
+  return typeof error === "object" && error !== null &&
+    "name" in error && error.name === "TimeoutError";
 }
 
 function abortError(): DOMException {

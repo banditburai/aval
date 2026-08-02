@@ -1,4 +1,5 @@
 import { OwnedReleaseTracker } from "./owned-releases.js";
+import type { PlayerInput } from "./player-contract.js";
 
 export interface HostListenerTarget {
   addEventListener(type: string, listener: EventListener): void;
@@ -33,6 +34,38 @@ export interface ElementHostGeometry {
   readonly width: number;
   readonly height: number;
   readonly dpr: number;
+}
+
+export function runtimeHostSupported(
+  stylesSupported: boolean,
+  view: Window | null
+): view is Window {
+  if (!stylesSupported || view === null) return false;
+  try {
+    return view.isSecureContext === true &&
+      typeof view.crypto?.subtle?.digest === "function";
+  } catch { return false; }
+}
+
+export function createRealmPlatform(
+  view: Window
+): Readonly<PlayerInput["platform"]> {
+  const realm = view as Window & Partial<Pick<
+    typeof globalThis,
+    "Worker" | "VideoDecoder" | "VideoFrame"
+  >>;
+  return Object.freeze({
+    fetch: view.fetch.bind(view),
+    Worker: typeof realm.Worker === "function" ? realm.Worker : null,
+    VideoDecoder: typeof realm.VideoDecoder === "function" ? realm.VideoDecoder : null,
+    VideoFrame: typeof realm.VideoFrame === "function" ? realm.VideoFrame : null,
+    requestAnimationFrame: view.requestAnimationFrame.bind(view),
+    cancelAnimationFrame: view.cancelAnimationFrame.bind(view),
+    now: view.performance.now.bind(view.performance),
+    setTimeout: (callback, delay) => view.setTimeout(callback, delay),
+    clearTimeout: (handle) => view.clearTimeout(handle),
+    crypto: view.crypto
+  });
 }
 
 export interface ElementHostEnvironmentPort<TRecord> {
@@ -128,6 +161,11 @@ export class ElementHostEnvironment<TRecord> {
   #intersectionKnown = false;
   #intersecting = false;
   #positiveBox = false;
+  #geometry: Readonly<ElementHostGeometry> = Object.freeze({
+    width: 0,
+    height: 0,
+    dpr: 1
+  });
   #observedReducedMotion: boolean | null = null;
   #observerSupported = false;
   #intersectionGate: IntersectionGate | null = null;
@@ -348,8 +386,13 @@ export class ElementHostEnvironment<TRecord> {
       height: measured.height,
       dpr: measured.dpr
     });
+    this.#geometry = geometry;
     this.#positiveBox = geometry.width > 0 && geometry.height > 0;
     return geometry;
+  }
+
+  public get geometry(): Readonly<ElementHostGeometry> {
+    return this.#geometry;
   }
 
   public needsIntersectionSample(): boolean {

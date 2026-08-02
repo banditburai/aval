@@ -15,10 +15,10 @@ import {
   contextRecoveryCount,
   outstandingDecoder,
   runtimeSuspension,
-  runtimeVisibility,
-  resumeCurrent,
-  transitioningState
-} from "../src/aval-element.js";
+  runtimeVisibility
+} from "../src/element-diagnostics.js";
+import { resumeCurrent } from "../src/playback-lifecycle.js";
+import { transitioningState } from "../src/element-snapshot-store.js";
 import type { PlayerSnapshot } from "../src/player-contract.js";
 
 describe("diagnostics", () => {

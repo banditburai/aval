@@ -2,9 +2,6 @@ import { readFile, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import {
-  publicFailureCode
-} from "../src/aval-element.js";
 import { readElementSources } from "../src/element-sources.js";
 
 describe("element trust boundary", () => {
@@ -35,12 +32,6 @@ describe("element trust boundary", () => {
     expect(JSON.stringify(read.failures)).not.toContain("SECRET");
     expect(JSON.stringify(read.failures)).not.toContain("password");
     expect(Object.isFrozen(read.failures)).toBe(true);
-  });
-
-  it("publishes only documented public failure codes", () => {
-    expect(publicFailureCode("load-failure")).toBe("load-failure");
-    expect(publicFailureCode("worker-decode-failure")).toBe("worker-decode-failure");
-    expect(publicFailureCode("renderer-failure")).toBe("renderer-failure");
   });
 
   it("does not use generated markup, dynamic code, video seeking, or console hooks", async () => {

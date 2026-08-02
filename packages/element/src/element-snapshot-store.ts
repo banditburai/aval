@@ -64,6 +64,17 @@ export class ElementSnapshotStore {
   }
 }
 
+export function transitioningState(
+  current: boolean,
+  type: string,
+  detail: Readonly<Record<string, unknown>>
+): boolean {
+  if (typeof detail.isTransitioning === "boolean") return detail.isTransitioning;
+  if (type === "transitionstart") return true;
+  if (type === "transitionend") return false;
+  return current;
+}
+
 function sameState(
   current: Readonly<ElementSnapshotState>,
   next: Readonly<ElementSnapshotState>
