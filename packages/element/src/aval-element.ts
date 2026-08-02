@@ -4,9 +4,28 @@ import {
 
 import { ElementAttributeReflection } from "./element-attribute-reflection.js";
 import { AVAL_ATTRIBUTES, AVAL_UPGRADE_PROPERTIES } from "./element-attributes.js";
-import { normalizeIntegrity, normalizeSource } from "./element-configuration.js";
 import { ElementEventMutationGate } from "./element-event-mutation-gate.js";
-import { ElementEngagementBinding } from "./element-engagement-binding.js";
+import {
+  createDomHostEnvironmentPort,
+  ElementHostEnvironment,
+  type ElementHostGeometry,
+  type ElementHostVisibilityChange
+} from "./element-host-environment.js";
+import {
+  createElementOwnershipSnapshot,
+  createElementTerminalCleanupProof,
+  createSourceCleanupReceipt,
+  playerSnapshotDisposed,
+  proveSourceRetirement,
+  serializeElementOwnershipSnapshot,
+  serializeSourceCleanupReceipt,
+  serializeElementTerminalCleanupProof,
+  type ElementOwnershipSnapshot,
+  type ElementTerminalCleanupProof,
+  type SourceCleanupReceipt
+} from "./element-cleanup-proof.js";
+import { ElementInputBinding } from "./element-input-binding.js";
+import { ElementPageResourceOwner } from "./element-page-resource-owner.js";
 import { ElementPublicEvents } from "./element-public-events.js";
 import {
   ElementSnapshotStore,
@@ -23,14 +42,6 @@ import type {
   PlayerSnapshot,
   Source
 } from "./player-contract.js";
-import {
-  pageResourcesSnapshot,
-  createPageDecoderParticipant,
-  type PageDecoderLease,
-  type PageDecoderParticipant,
-  type PageDecoderTicket,
-  type PageResourcesSnapshot
-} from "./page-resources.js";
 import { LifecycleLane } from "./lifecycle-lane.js";
 import {
   AvalNotReadyError,
@@ -69,9 +80,9 @@ import {
   retainPlaybackLifecycleCounters
 } from "./playback-lifecycle.js";
 import {
-  compareSourceCodec,
-  sourceCodec
-} from "./source-codec-policy.js";
+  isElementSourceMutation,
+  readElementSources
+} from "./element-sources.js";
 import {
   ELEMENT_SETUP_TIMEOUT_MS,
   preparationBudgetMs
@@ -79,21 +90,12 @@ import {
 
 let runtimeModule: Promise<typeof import("./player.js")> | null = null;
 const MAX_RETAINED_DECODER_SOURCES = 128;
-type IntersectionGate = {
-  readonly promise: Promise<void>;
-  readonly resolve: () => void;
-  readonly reject: (reason: unknown) => void;
-};
 type FailureInput = AvalPublicFailure["code"];
 type ElementTiming = Readonly<{
   setTimeout: (callback: () => void, delay: number) => number;
   clearTimeout: (handle: number) => void;
   timeoutError: () => DOMException;
   abortError: () => DOMException;
-}>;
-type OwnedRelease = Readonly<{
-  kind: "listener" | "observer";
-  release: () => void;
 }>;
 
 export function createAvalElementClass(
@@ -109,7 +111,9 @@ export function createAvalElementClass(
     readonly #lifecycle = new LifecycleLane();
     readonly #events: ElementPublicEvents;
     readonly #eventMutations: ElementEventMutationGate;
-    readonly #engagementBinding: ElementEngagementBinding;
+    readonly #hostEnvironment: ElementHostEnvironment<MutationRecord>;
+    readonly #inputBinding: ElementInputBinding<Element>;
+    readonly #pageResources: ElementPageResourceOwner;
     readonly #snapshots: ElementSnapshotStore;
     readonly #trace = new ElementTrace();
     readonly #counters = {
@@ -121,47 +125,10 @@ export function createAvalElementClass(
       contextRecovery: 0,
       cleanup: 0
     };
-    #sourceObserver: MutationObserver;
-    #sourceObserving = false;
-    #observersInstalled = false;
-    #resizeObserver: ResizeObserver | null = null;
-    #intersectionObserver: IntersectionObserver | null = null;
-    #intersectionKnown = false;
-    #intersectionGate: IntersectionGate | null = null;
-    #media: MediaQueryList | null = null;
-    #observedMediaReduced: boolean | null = null;
-    #installedRoot: Node | null = null;
-    #installedDocument: Document | null = null;
-    #installedView: Window | null = null;
-    #mediaListener: ((event: MediaQueryListEvent) => void) | null = null;
-    #documentListener: (() => void) | null = null;
-    #windowListener: (() => void) | null = null;
-    #pageHideListener: EventListener | null = null;
-    #pageShowListener: EventListener | null = null;
-    #pageHidden = false;
-    #observerEpoch = 0;
-    #adoptionEpoch = 0;
-    #sourceRequestEpoch = 0;
-    #failedReleases: OwnedRelease[] = [];
-    readonly #deferredAttributes = new Set<string>();
-    #deferredCommandCount = 0;
-    #inputListeners: Array<{
-      target: EventTarget;
-      type: string;
-      listener: EventListener;
-      options?: boolean | AddEventListenerOptions;
-    }> = [];
-    #boundInputTarget: Element | null = null;
-    #bindingEpoch = 0;
     #player: Player | null = null;
     #retiringPlayer: Player | null = null;
     #retiringDeclaredFileBytes = 0;
     #visibilityPlayer: Player | null = null;
-    #pageParticipant: PageDecoderParticipant | null = null;
-    #pageRealm: object | null = null;
-    #decoderTicket: PageDecoderTicket | null = null;
-    #decoderLease: PageDecoderLease | null = null;
-    #resourceBytes = 0;
     #preparingPlayer: Player | null = null;
     #suspendingPlayer: Player | null = null;
     #suspension: Promise<RuntimeReadinessResult> | null = null;
@@ -173,7 +140,6 @@ export function createAvalElementClass(
     #load: Promise<RuntimeReadinessResult> | null = null;
     #controller: AbortController | null = null;
     #metadata: Readonly<Metadata> | null = null;
-    #explicitTarget: Element | null = null;
     #finalDisposed = false;
     #disposePromise: Promise<void> | null = null;
     #reloadQueued = false;
@@ -195,14 +161,9 @@ export function createAvalElementClass(
       Object.freeze([]);
     #playbackLifecycle: Readonly<AvalPlaybackLifecycleCounters> =
       emptyPlaybackLifecycleCounters();
-    #cleanup: Readonly<Record<string, unknown>> | null = null;
-    #terminalCleanup: Readonly<Record<string, unknown>> | null = null;
-    #intersecting = false;
-    #lastVisibility: boolean | null = null;
-    #positiveBox = false;
+    #cleanup: Readonly<SourceCleanupReceipt> | null = null;
+    #terminalCleanup: Readonly<ElementTerminalCleanupProof> | null = null;
     #playSequence = 0;
-    #hovered = false;
-    #focused = false;
 
     public constructor() {
       super();
@@ -210,11 +171,72 @@ export function createAvalElementClass(
       this.#layers = new ShadowLayerOwner(this);
       this.#events = new ElementPublicEvents(this);
       this.#eventMutations = new ElementEventMutationGate(this.#events);
-      this.#engagementBinding = new ElementEngagementBinding(
-        (source) => this.#sendBinding(source),
-        () => this.#transitioning
-      );
-      this.#sourceObserver = this.#createSourceObserver();
+      this.#inputBinding = new ElementInputBinding({
+        host: this,
+        documentTarget: () => this.ownerDocument,
+        activeElement: () => this.ownerDocument.activeElement,
+        rootOf: (target) => target.getRootNode(),
+        resolveById: (id) => {
+          const root = this.getRootNode();
+          if (
+            "getElementById" in root &&
+            typeof root.getElementById === "function"
+          ) return root.getElementById(id);
+          return null;
+        },
+        isCurrentRealmTarget: (target) => {
+          const Constructor = this.ownerDocument.defaultView?.Element;
+          return Constructor !== undefined && target instanceof Constructor;
+        },
+        contains: (target, node) => target.contains(node),
+        matchesHover: (target) => target.matches(":hover"),
+        blur: (target) => {
+          const blur = Reflect.get(target, "blur");
+          if (typeof blur === "function") Reflect.apply(blur, target, []);
+        },
+        currentMode: () => this.bindings,
+        currentInteractionFor: () => this.interactionFor,
+        currentBindings: () =>
+          this.#metadata !== null && this.#player !== null
+            ? this.#metadata.bindings : null,
+        isTransitioning: () => this.#transitioning,
+        dispatchBinding: (event) => this.send(event),
+        recordSource: (source) => this.#trace.record(
+          `input-${source.replaceAll(".", "-")}`,
+          Math.max(1, this.#sourceGeneration)
+        ),
+        onTargetUnavailable: () => this.#publishFailure(
+          "interaction-target-unavailable",
+          "bind-inputs",
+          false,
+          Math.max(1, this.#sourceGeneration)
+        ),
+        queueOwnedMicrotask: (operation) =>
+          this.#eventMutations.queueOwnedMicrotask(operation),
+        queueEventFollowup: (operation) =>
+          this.#eventMutations.queueEventFollowup(operation)
+      });
+      this.#pageResources = new ElementPageResourceOwner({
+        currentRealm: () => this.ownerDocument.defaultView ?? globalThis,
+        currentVisibility: () => this.effectivelyVisible,
+        onDecoderGranted: (generation) => this.#decoderGranted(generation)
+      });
+      this.#hostEnvironment = new ElementHostEnvironment({
+        environment: createDomHostEnvironmentPort(
+          this,
+          (record) => isElementSourceMutation(this, record)
+        ),
+        callbacks: {
+          sourcesChanged: () => this.#scheduleReload(),
+          geometryChanged: (geometry) => this.#resize(geometry),
+          visibilityChanged: (change) => this.#hostVisibilityChanged(change),
+          motionPreferenceChanged: () => this.#hostMotionPreferenceChanged(),
+          realmChanged: () => {
+            this.#inputBinding.realmChanged();
+            rebindAdoptedStyles(this.#layers, this.ownerDocument);
+          }
+        }
+      });
       this.#attributes.upgrade(AVAL_UPGRADE_PROPERTIES);
       this.#snapshots = new ElementSnapshotStore({
         generation: 0,
@@ -253,24 +275,20 @@ export function createAvalElementClass(
     public connectedCallback(): void {
       if (this.#finalDisposed) return;
       const wasConnected = this.#connected;
-      const rootChanged = this.#installedRoot !== null &&
-        this.#installedRoot !== this.getRootNode();
+      const rootChanged = this.#hostEnvironment.rootChanged();
       if (rootChanged) {
-        if (this.#explicitTarget !== null) {
-          try { interactionTarget(this, this.#explicitTarget); }
-          catch { this.#explicitTarget = null; }
-        }
-        this.#removeObservers();
+        this.#inputBinding.realmChanged();
+        this.#hostEnvironment.remove();
       }
       this.#commitPublicState({
         connected: true,
-        effectivelyVisible: this.#effectiveVisibility()
+        effectivelyVisible: this.#hostEnvironment.snapshot().effectivelyVisible
       });
       if (!wasConnected) {
         this.#trace.record("connect", Math.max(1, this.#sourceGeneration));
       }
-      if (!this.#installObservers()) return;
-      if (rootChanged) this.#bindInputs();
+      if (!this.#hostEnvironment.install()) return;
+      if (rootChanged) this.#inputBinding.refresh();
       if (!wasConnected || this.#load === null && this.#player === null &&
         this.#retiringPlayer === null) this.#scheduleReload(false);
     }
@@ -278,10 +296,11 @@ export function createAvalElementClass(
     public disconnectedCallback(): void {
       queueMicrotask(() => {
         if (this.isConnected || this.#finalDisposed) return;
-        this.#removeObservers();
+        this.#hostEnvironment.remove();
+        this.#inputBinding.disconnect();
         this.#commitPublicState({
           connected: false,
-          effectivelyVisible: this.#effectiveVisibility()
+          effectivelyVisible: this.#hostEnvironment.snapshot().effectivelyVisible
         });
         this.#trace.record("disconnect", Math.max(1, this.#sourceGeneration));
         this.#load = null;
@@ -304,25 +323,19 @@ export function createAvalElementClass(
 
     public adoptedCallback(): void {
       if (this.#finalDisposed) return;
-      const epoch = ++this.#adoptionEpoch;
+      const adoption = this.#hostEnvironment.beginAdoption();
       this.#trace.record("adopt", Math.max(1, this.#sourceGeneration));
       this.#load = null;
-      if (this.#explicitTarget !== null) {
-        try { interactionTarget(this, this.#explicitTarget); }
-        catch { this.#explicitTarget = null; }
-      }
-      this.#removeObservers();
       this.#commitPublicState({
         connected: this.isConnected,
-        effectivelyVisible: this.#effectiveVisibility()
+        effectivelyVisible: this.#hostEnvironment.snapshot().effectivelyVisible
       });
-      this.#sourceObserver = this.#createSourceObserver();
-      rebindAdoptedStyles(this.#layers, this.ownerDocument);
       const retirement = this.#queueRetirement(false);
       const finish = (): void => {
         if (
-          epoch === this.#adoptionEpoch && this.#connected &&
-          this.isConnected && !this.#finalDisposed && this.#installObservers()
+          adoption.current() && this.#connected &&
+          this.isConnected && !this.#finalDisposed &&
+          this.#hostEnvironment.install()
         ) {
           this.#scheduleReload(false);
         }
@@ -337,10 +350,8 @@ export function createAvalElementClass(
     ): void {
       if (previous === next || this.#finalDisposed) return;
       if (this.#events.active) {
-        deferAttributeEffect(
-          this.#deferredAttributes,
+        this.#eventMutations.deferAttribute(
           name,
-          (operation) => this.#deferPublicMutation(operation),
           () => this.getAttribute(name),
           (current) => {
             if (!this.#finalDisposed) this.#applyAttributeChange(name, current);
@@ -372,43 +383,12 @@ export function createAvalElementClass(
         this.#applyIntrinsic();
         this.#resize();
       } else if (name === "bindings" || name === "interaction-for") {
-        this.#bindInputs();
+        this.#inputBinding.refresh();
       } else if (name === "autoplay") {
         this.#commitPublicState({ paused: this.autoplay !== "visible" });
         this.#playSequence += 1;
         this.#updatePlayback();
       }
-    }
-
-    #deferPublicMutation(operation: () => void): boolean {
-      if (!this.#events.active) return false;
-      this.#deferredCommandCount += 1;
-      const deferred = this.#eventMutations.defer(() => {
-        this.#deferredCommandCount -= 1;
-        operation();
-      });
-      if (!deferred) this.#deferredCommandCount -= 1;
-      return deferred;
-    }
-
-    #deferPublicMutationPromise<T>(
-      operation: () => Promise<T>
-    ): Promise<T> | null {
-      if (!this.#events.active) return null;
-      this.#deferredCommandCount += 1;
-      const deferred = this.#eventMutations.deferPromise(() => {
-        this.#deferredCommandCount -= 1;
-        return operation();
-      });
-      if (deferred === null) this.#deferredCommandCount -= 1;
-      return deferred;
-    }
-
-    #queueOwnedMicrotask(operation: () => void): void {
-      queueOwnedMicrotask(
-        (delta) => { this.#deferredCommandCount += delta; },
-        operation
-      );
     }
 
     public get crossOrigin(): AvalCrossOrigin { return this.#attributes.crossOrigin; }
@@ -426,14 +406,15 @@ export function createAvalElementClass(
     public get interactionFor(): string { return this.#attributes.interactionFor; }
     public set interactionFor(value: string) { this.#attributes.interactionFor = value; }
     public get interactionTarget(): Element | null {
-      return this.#explicitTarget ?? this.#resolveInteractionTarget();
+      return this.#inputBinding.interactionTarget;
     }
     public set interactionTarget(value: Element | null) {
       if (this.#finalDisposed) return;
-      const target = interactionTarget(this, value);
-      if (this.#deferPublicMutation(() => { this.interactionTarget = target; })) return;
-      this.#explicitTarget = target;
-      this.#bindInputs();
+      const target = this.#inputBinding.validateInteractionTarget(value);
+      if (this.#eventMutations.deferCommand(
+        () => { this.interactionTarget = target; }
+      )) return;
+      this.#inputBinding.setInteractionTarget(target);
     }
     public get width(): number | null { return this.#attributes.width; }
     public set width(value: number | null) { this.#attributes.width = value; }
@@ -499,7 +480,9 @@ export function createAvalElementClass(
       ) return Promise.reject(new RangeError("timeoutMs must be a positive integer"));
       if (options.signal?.aborted) return Promise.reject(options.signal.reason);
       if (this.#finalDisposed) return Promise.reject(abortError());
-      const deferred = this.#deferPublicMutationPromise(() => this.prepare(options));
+      const deferred = this.#eventMutations.deferCommandPromise(
+        () => this.prepare(options)
+      );
       if (deferred !== null) return deferred;
       const view = this.ownerDocument.defaultView;
       if (view === null) {
@@ -522,7 +505,9 @@ export function createAvalElementClass(
         throw new TypeError("state must be an authored identifier");
       }
       if (this.#finalDisposed) throw abortError();
-      const deferred = this.#deferPublicMutationPromise(() => this.setState(name));
+      const deferred = this.#eventMutations.deferCommandPromise(
+        () => this.setState(name)
+      );
       if (deferred !== null) return deferred;
       this.#flushSourceMutations();
       await this.#ensure();
@@ -578,7 +563,7 @@ export function createAvalElementClass(
         if (this.#events.active) {
           return player !== null && deferAcceptedSend(
             () => player.canSend(event),
-            (operation) => this.#deferPublicMutation(operation),
+            (operation) => this.#eventMutations.deferCommand(operation),
             () => {
               if (
                 this.#player === player && !this.#finalDisposed &&
@@ -601,7 +586,7 @@ export function createAvalElementClass(
 
     public pause(): void {
       if (this.#finalDisposed) return;
-      if (this.#deferPublicMutation(() => this.pause())) return;
+      if (this.#eventMutations.deferCommand(() => this.pause())) return;
       this.#flushSourceMutations();
       this.#commitPublicState({ paused: true });
       this.#playSequence += 1;
@@ -611,7 +596,9 @@ export function createAvalElementClass(
 
     public async resume(): Promise<void> {
       if (this.#finalDisposed) throw abortError();
-      const deferred = this.#deferPublicMutationPromise(() => this.resume());
+      const deferred = this.#eventMutations.deferCommandPromise(
+        () => this.resume()
+      );
       if (deferred !== null) return deferred;
       this.#flushSourceMutations();
       const previous = this.#manualPlaying;
@@ -673,17 +660,32 @@ export function createAvalElementClass(
 
     public dispose(): Promise<void> {
       if (this.#disposePromise !== null) return this.#disposePromise;
-      const deferred = this.#deferPublicMutationPromise(() => this.dispose());
-      if (deferred !== null) return deferred;
+      if (this.#events.active) {
+        let resolve!: () => void;
+        let reject!: (reason: unknown) => void;
+        const deferred = new Promise<void>((accept, decline) => {
+          resolve = accept;
+          reject = decline;
+        });
+        if (this.#eventMutations.deferCommand(() => {
+          try { void this.#createDisposeOperation().then(resolve, reject); }
+          catch (error) { reject(error); }
+        })) return this.#retainDisposeOperation(deferred);
+      }
+      return this.#retainDisposeOperation(this.#createDisposeOperation());
+    }
+
+    #createDisposeOperation(): Promise<void> {
       if (!this.#finalDisposed) {
         this.#finalDisposed = true;
         this.#trace.record("dispose", Math.max(1, this.#sourceGeneration));
       }
       this.#load = null;
-      this.#removeObservers();
+      this.#hostEnvironment.remove();
+      this.#inputBinding.close();
       this.#commitPublicState({
         connected: false,
-        effectivelyVisible: this.#effectiveVisibility()
+        effectivelyVisible: this.#hostEnvironment.snapshot().effectivelyVisible
       });
       const finish = (retirementCompleted: boolean): void => {
         const presentationCleanupCompleted = this.#layers.dispose();
@@ -691,21 +693,22 @@ export function createAvalElementClass(
         this.#commitPublicState({ readiness: "disposed" });
         this.#dispatchReadinessChange(from, "disposed");
         const ownership = this.#ownershipSnapshot(true);
+        const pageResources = this.#pageResources.snapshot().ownership;
         const sourceCleanupCompleted = retirementCompleted &&
           this.#player === null && this.#retiringPlayer === null &&
-          this.#controller === null && this.#pageParticipant === null &&
-          this.#resourceBytes === 0 && this.#decoderState() === null &&
+          this.#controller === null && pageResources.participantDisposed &&
+          pageResources.logicalBytes === 0 &&
+          pageResources.decoderState === null &&
           this.#cleanup?.completed !== false;
-        this.#terminalCleanup = Object.freeze({
-          completed: sourceCleanupCompleted && presentationCleanupCompleted &&
-            ownership.completed === true,
+        this.#terminalCleanup = createElementTerminalCleanupProof(
           sourceCleanupCompleted,
           presentationCleanupCompleted,
-          elementOwnership: ownership
-        });
-        if (this.#terminalCleanup.completed !== true) {
+          ownership
+        );
+        if (!this.#terminalCleanup.completed) {
           throw new ElementCleanupIncompleteError();
         }
+        this.#eventMutations.close();
       };
       const operation = this.#queueRetirement(true).then(
         () => finish(true),
@@ -714,6 +717,10 @@ export function createAvalElementClass(
           throw error;
         }
       );
+      return operation;
+    }
+
+    #retainDisposeOperation(operation: Promise<void>): Promise<void> {
       this.#disposePromise = operation;
       void operation.catch(() => {
         if (this.#disposePromise === operation) this.#disposePromise = null;
@@ -725,7 +732,7 @@ export function createAvalElementClass(
       if (!this.#connected || this.#finalDisposed) return;
       if (resetRestart) {
         this.#clearRestart();
-        if (replace) this.#invalidateSourceRequest();
+        if (replace) this.#pageResources.invalidateRequest();
       }
       this.#reloadReplace ||= replace;
       if (this.#reloadQueued) return;
@@ -745,12 +752,10 @@ export function createAvalElementClass(
     }
 
     #flushSourceMutations(): boolean {
-      const changed = this.#sourceObserver.takeRecords().some((record) =>
-        sourceMutation(this, record)
-      );
+      const changed = this.#hostEnvironment.takeSourceChanges();
       if (changed) {
         this.#clearRestart();
-        this.#invalidateSourceRequest();
+        this.#pageResources.invalidateRequest();
         this.#reloadReplace = true;
       }
       if (!changed && !this.#reloadQueued) return false;
@@ -824,7 +829,7 @@ export function createAvalElementClass(
     }
 
     #queueRetirement(terminal: boolean): Promise<void> {
-      this.#invalidateSourceRequest();
+      this.#pageResources.invalidateRequest();
       return this.#lifecycle.retirement(
         () => this.#controller?.abort(),
         () => this.#retireGeneration(terminal)
@@ -877,7 +882,7 @@ export function createAvalElementClass(
       });
       this.#dispatchReadinessChange(fromReadiness, "unready");
       const document = this.ownerDocument;
-      const sourceRead = readSources(this);
+      const sourceRead = readElementSources(this);
       for (const failure of sourceRead.failures) {
         this.#publishFailure(
           "invalid-configuration",
@@ -910,12 +915,9 @@ export function createAvalElementClass(
       const setupDeadline = startedAt + ELEMENT_SETUP_TIMEOUT_MS;
       const preparationDeadline = startedAt + preparationBudgetMs(sources.length);
       try {
-        if (needsIntersectionSample(
-          this.#intersectionKnown,
-          this.#documentVisible()
-        )) {
+        if (this.#hostEnvironment.needsIntersectionSample()) {
           await withLimits(
-            this.#ensureIntersectionGate().promise,
+            this.#hostEnvironment.waitForIntersection(),
             this.#controller.signal,
             remainingElementPreparationMs(setupDeadline, clock, timing),
             (delta) => { this.#timerCount += delta; },
@@ -939,7 +941,6 @@ export function createAvalElementClass(
         const selectedMotion = this.motion;
         const selectedReduced = this.#motionReduced(selectedMotion);
         const platform = createRealmPlatform(view);
-        this.#ensurePageParticipant();
         const player = await module.createPlayer({
           canvas: this.#layers.animatedCanvas,
           platform,
@@ -959,7 +960,8 @@ export function createAvalElementClass(
           initialState: restartState,
           initialBody,
           visible: this.effectivelyVisible,
-          decoderReady: () => this.#claimDecoder(generation, token),
+          decoderReady: () => this.#current(generation, token) &&
+            this.#pageResources.claimDecoder(generation),
           onCandidate: async (candidate) => {
             if (!this.#current(generation, token)) throw abortError();
             this.#player = candidate;
@@ -982,7 +984,7 @@ export function createAvalElementClass(
               token
             );
             if (!this.#current(generation, token)) throw abortError();
-            this.#bindInputs();
+            this.#inputBinding.refresh();
             this.#resize();
             this.#updatePlayback();
             if (this.#suspendingPlayer === candidate && this.#suspension !== null) {
@@ -992,14 +994,14 @@ export function createAvalElementClass(
           },
           onResourceBytes: (bytes) => {
             if (!this.#publicationCurrent(generation, token)) return;
-            this.#setResourceBytes(bytes);
+            this.#pageResources.setResourceBytes(bytes);
           },
           onMetadata: (metadata) => {
             if (!this.#publicationCurrent(generation, token)) return;
             if (this.#metadata === metadata) return;
             this.#setMetadata(metadata);
             this.#applyIntrinsic();
-            this.#bindInputs();
+            this.#inputBinding.refresh();
             this.#resize();
           },
           onReadiness: (value, reason) => {
@@ -1030,15 +1032,13 @@ export function createAvalElementClass(
           },
           onAnimationResourcesRetired: () => {
             if (!this.#publicationCurrent(generation, token)) return;
-            this.#releaseDecoderLease();
-            if (this.#staticReason !== "decoder-queued") {
-              this.#cancelDecoderTicket();
-              if (this.#resourceBytes === 0) this.#releasePageResources();
-            }
+            this.#pageResources.animationResourcesRetired(
+              this.#staticReason === "decoder-queued"
+            );
           },
           onDraw: () => {
             if (!this.#publicationCurrent(generation, token)) return;
-            this.#reconcileMediaPreference();
+            this.#hostEnvironment.reconcileMotionPreference();
             this.#layers.markAnimatedDrawn(generation);
             this.#layers.revealAnimated(generation);
           },
@@ -1139,7 +1139,7 @@ export function createAvalElementClass(
           await failedGenerationCleanup(
             this.#player !== null,
             () => this.#retireGeneration(false),
-            () => this.#releasePageResources(true)
+            () => this.#pageResources.releaseAll()
           );
         } catch (cleanupError) {
           if (!this.#generationCurrent(generation, token)) throw abortError();
@@ -1191,9 +1191,9 @@ export function createAvalElementClass(
       this.#player = null;
       if (this.#visibilityPlayer === player) this.#visibilityPlayer = null;
       controller?.abort();
-      this.#unbindInputs();
+      this.#inputBinding.disconnect();
       if (player === null) {
-        this.#releasePageResources(true);
+        this.#pageResources.releaseAll();
         return;
       }
       const retry = this.#retiringPlayer === player;
@@ -1260,8 +1260,8 @@ export function createAvalElementClass(
       this.#retainPlaybackLifecycle(snapshot?.playbackLifecycle);
       if (disposed && !failed && playerSnapshotDisposed(snapshot)) {
         try {
-          this.#setResourceBytes(0);
-          this.#releasePageResources();
+          this.#pageResources.setResourceBytes(0);
+          this.#pageResources.releaseAll();
         } catch (error) {
           failed = true;
           if (!caught) {
@@ -1270,25 +1270,23 @@ export function createAvalElementClass(
           }
         }
       }
-      this.#cleanup = createCleanupReceipt(
-        this.#elementGeneration,
-        this.#sourceGeneration,
-        snapshot,
-        this.#pageSnapshot(),
-        this.#retiringDeclaredFileBytes,
-        failed,
-        this.#pageParticipant === null,
-        this.#resourceBytes,
-        this.#decoderState(),
+      const pageResources = this.#pageResources.snapshot();
+      this.#cleanup = createSourceCleanupReceipt({
+        generation: this.#elementGeneration,
+        sourceGeneration: this.#sourceGeneration,
+        runtime: snapshot,
+        page: pageResources.page,
+        retiredDeclaredFileBytes: this.#retiringDeclaredFileBytes,
+        operationFailed: failed,
+        pageResources: pageResources.ownership,
         terminal,
-        this.#stalePublicationCount
-      );
+        stalePublicationCount: this.#stalePublicationCount
+      });
       this.#counters.cleanup += 1;
       try {
-        if (proveRetirement(disposed, this.#cleanup)) {
+        if (proveSourceRetirement(disposed, this.#cleanup)) {
           this.#retiringPlayer = null;
           this.#retiringDeclaredFileBytes = 0;
-          this.#pageRealm = null;
           return;
         }
       } catch (error) {
@@ -1325,7 +1323,7 @@ export function createAvalElementClass(
         )
       });
       this.#dispatch(type, detail, generation);
-      if (type === "transitionend") this.#queueEngagementRetry();
+      if (type === "transitionend") this.#inputBinding.transitionEnded();
     }
 
     #publishFailure(
@@ -1424,230 +1422,44 @@ export function createAvalElementClass(
       } catch { /* public observers cannot break runtime authority */ }
     }
 
-    #installObservers(): boolean {
-      const document = this.ownerDocument;
-      const view = document.defaultView;
-      const root = this.getRootNode();
-      if (
-        this.#observersInstalled && this.#installedDocument === document &&
-        this.#installedRoot === root
-      ) return true;
-      if (this.#installedDocument !== null || this.#sourceObserving) {
-        this.#removeObservers();
-      }
-      this.#retryFailedReleases();
-      const epoch = ++this.#observerEpoch;
-      this.#installedRoot = root;
-      this.#installedDocument = document;
-      this.#installedView = view;
-      try {
-        this.#sourceObserving = true;
-        this.#sourceObserver.observe(this, {
-          childList: true,
-          subtree: true,
-          attributes: true,
-          attributeFilter: ["src", "data-codec", "integrity"]
-        });
-        if (typeof view?.ResizeObserver === "function") {
-          const observer = new view.ResizeObserver(() => {
-            if (epoch === this.#observerEpoch) this.#resize();
-          });
-          this.#resizeObserver = observer;
-          observer.observe(this);
-        }
-        if (typeof view?.IntersectionObserver === "function") {
-          const observer = new view.IntersectionObserver((entries) => {
-            if (epoch !== this.#observerEpoch) return;
-            const entry = entries.at(-1);
-            if (entry === undefined) return;
-            this.#intersecting = entry.isIntersecting && entry.intersectionRatio > 0;
-            this.#intersectionKnown = true;
-            this.#visibilityChanged();
-            const gate = this.#intersectionGate;
-            this.#intersectionGate = null;
-            gate?.resolve();
-          });
-          this.#intersectionObserver = observer;
-          observer.observe(this);
-        } else {
-          this.#intersecting = false;
-          this.#intersectionKnown = true;
-        }
-        this.#documentListener = () => {
-          if (epoch !== this.#observerEpoch) return;
-          if (!this.#documentVisible()) this.#resolveIntersectionGate();
-          this.#visibilityChanged();
-        };
-        document.addEventListener("visibilitychange", this.#documentListener);
-        this.#media = typeof view?.matchMedia === "function"
-          ? view.matchMedia("(prefers-reduced-motion: reduce)") : null;
-        this.#observedMediaReduced = this.#media?.matches ?? null;
-        this.#mediaListener = () => {
-          if (epoch !== this.#observerEpoch) return;
-          this.#reconcileMediaPreference();
-        };
-        this.#media?.addEventListener("change", this.#mediaListener);
-        this.#windowListener = () => {
-          if (epoch === this.#observerEpoch) this.#resize();
-        };
-        view?.addEventListener("resize", this.#windowListener);
-        this.#pageHideListener = () => {
-          if (epoch !== this.#observerEpoch) return;
-          this.#pageHidden = true;
-          this.#trace.record("pagehide", Math.max(1, this.#sourceGeneration));
-          this.#resolveIntersectionGate();
-          this.#visibilityChanged();
-        };
-        view?.addEventListener("pagehide", this.#pageHideListener);
-        this.#pageShowListener = (event) => {
-          if (epoch !== this.#observerEpoch) return;
-          this.#pageHidden = false;
-          if (persistedPageShow(event)) {
-            this.#commitPublicState({
-              effectivelyVisible: this.#effectiveVisibility()
-            });
-            this.#trace.record("bfcache-restore", Math.max(1, this.#sourceGeneration));
-            this.#pageParticipant?.setVisible(this.effectivelyVisible);
-            this.#invalidateSourceRequest();
-            this.#captureRestart(false);
-            this.#scheduleReload(true, false);
-            return;
-          }
-          this.#visibilityChanged();
-        };
-        view?.addEventListener("pageshow", this.#pageShowListener);
-        this.#observersInstalled = true;
-        this.#resize();
-        return true;
-      } catch {
-        this.#removeObservers();
-        this.#commitPublicState({
-          effectivelyVisible: this.#effectiveVisibility()
-        });
-        return false;
-      }
-    }
-
-    #createSourceObserver(): MutationObserver {
-      const Observer = this.ownerDocument.defaultView?.MutationObserver ?? MutationObserver;
-      let observer!: MutationObserver;
-      observer = new Observer((records) => {
-        if (observer !== this.#sourceObserver || !this.#sourceObserving) return;
-        if (records.some((record) => sourceMutation(this, record))) {
-          this.#scheduleReload();
-        }
-      });
-      return observer;
-    }
-
-    #removeObservers(): void {
-      this.#retryFailedReleases();
-      this.#observersInstalled = false;
-      this.#observerEpoch += 1;
-      const sourceObserver = this.#sourceObserver;
-      const sourceObserving = this.#sourceObserving;
-      this.#sourceObserving = false;
-      if (sourceObserving) {
-        this.#attemptRelease("observer", () => sourceObserver.disconnect());
-      }
-      const resizeObserver = this.#resizeObserver;
-      const intersectionObserver = this.#intersectionObserver;
-      this.#resizeObserver = null;
-      this.#intersectionObserver = null;
-      if (resizeObserver !== null) {
-        this.#attemptRelease("observer", () => resizeObserver.disconnect());
-      }
-      if (intersectionObserver !== null) {
-        this.#attemptRelease("observer", () => intersectionObserver.disconnect());
-      }
-      const documentTarget = this.#installedDocument;
-      const viewTarget = this.#installedView;
-      const documentListener = this.#documentListener;
-      const windowListener = this.#windowListener;
-      const pageHideListener = this.#pageHideListener;
-      const pageShowListener = this.#pageShowListener;
-      const media = this.#media;
-      const mediaListener = this.#mediaListener;
-      this.#observedMediaReduced = null;
-      this.#installedRoot = null;
-      this.#installedDocument = null;
-      this.#installedView = null;
-      this.#documentListener = null;
-      this.#mediaListener = null;
-      this.#windowListener = null;
-      this.#pageHideListener = null;
-      this.#pageShowListener = null;
-      if (documentListener !== null) this.#attemptRelease(
-        "listener",
-        () => documentTarget?.removeEventListener("visibilitychange", documentListener)
-      );
-      if (windowListener !== null) this.#attemptRelease(
-        "listener",
-        () => viewTarget?.removeEventListener("resize", windowListener)
-      );
-      if (pageHideListener !== null) this.#attemptRelease(
-        "listener",
-        () => viewTarget?.removeEventListener("pagehide", pageHideListener)
-      );
-      if (pageShowListener !== null) this.#attemptRelease(
-        "listener",
-        () => viewTarget?.removeEventListener("pageshow", pageShowListener)
-      );
-      if (mediaListener !== null) this.#attemptRelease(
-        "listener",
-        () => media?.removeEventListener("change", mediaListener)
-      );
-      this.#pageHidden = false;
-      this.#media = null;
-      this.#intersecting = false;
-      this.#intersectionKnown = false;
-      this.#lastVisibility = null;
-      const gate = this.#intersectionGate;
-      this.#intersectionGate = null;
-      gate?.reject(abortError());
-      this.#unbindInputs();
-    }
-
-    #attemptRelease(kind: OwnedRelease["kind"], release: () => void): void {
-      try { release(); }
-      catch { this.#failedReleases.push({ kind, release }); }
-    }
-
-    #retryFailedReleases(): void {
-      const pending = this.#failedReleases;
-      this.#failedReleases = [];
-      for (const owner of pending) this.#attemptRelease(owner.kind, owner.release);
-    }
-
-    #ensureIntersectionGate(): IntersectionGate {
-      if (this.#intersectionGate !== null) return this.#intersectionGate;
-      let resolve!: () => void;
-      let reject!: (reason: unknown) => void;
-      const promise = new Promise<void>((accepted, rejected) => {
-        resolve = accepted;
-        reject = rejected;
-      });
-      return this.#intersectionGate = { promise, resolve, reject };
-    }
-
-    #resolveIntersectionGate(): void {
-      const gate = this.#intersectionGate;
-      this.#intersectionGate = null;
-      gate?.resolve();
-    }
-
-    #resize(): void {
-      const rect = this.getBoundingClientRect();
-      this.#positiveBox = rect.width > 0 && rect.height > 0;
+    #resize(
+      geometry: Readonly<ElementHostGeometry> = this.#hostEnvironment.measure()
+    ): void {
       this.#resizeGeneration += 1;
       const fit = this.fit ?? this.#metadata?.canvas.fit ?? "contain";
       this.#player?.resize(
-        Math.max(1, rect.width),
-        Math.max(1, rect.height),
-        this.ownerDocument.defaultView?.devicePixelRatio ?? 1,
+        Math.max(1, geometry.width),
+        Math.max(1, geometry.height),
+        geometry.dpr,
         fit
       );
       this.#visibilityChanged();
+    }
+
+    #hostVisibilityChanged(
+      change: Readonly<ElementHostVisibilityChange>
+    ): void {
+      if (change.reason === "pagehide") {
+        this.#trace.record("pagehide", Math.max(1, this.#sourceGeneration));
+      }
+      if (change.reason !== "bfcache-restore") {
+        this.#visibilityChanged(change.reason === "pagehide");
+        return;
+      }
+      this.#commitPublicState({
+        effectivelyVisible: this.#hostEnvironment.snapshot().effectivelyVisible
+      });
+      this.#trace.record("bfcache-restore", Math.max(1, this.#sourceGeneration));
+      this.#pageResources.setVisible(this.effectivelyVisible);
+      this.#pageResources.invalidateRequest();
+      this.#captureRestart(false);
+      this.#scheduleReload(true, false);
+    }
+
+    #hostMotionPreferenceChanged(): void {
+      if (this.motion !== "auto") return;
+      this.#motionGeneration += 1;
+      this.#applyMotion();
     }
 
     #applyIntrinsic(): void {
@@ -1667,25 +1479,26 @@ export function createAvalElementClass(
       });
     }
 
-    #visibilityChanged(): void {
-      if (!this.#intersectionKnown && !this.#pageHidden) return;
-      const visible = this.#effectiveVisibility();
+    #visibilityChanged(force = false): void {
+      const environment = this.#hostEnvironment.snapshot();
+      if (!environment.intersectionKnown && !force) return;
+      const visible = environment.effectivelyVisible;
+      const previous = this.effectivelyVisible;
       this.#commitPublicState({ effectivelyVisible: visible });
       const player = this.#player;
-      const edge = visible !== this.#lastVisibility;
+      const edge = visible !== previous;
       const playerChanged = player !== this.#visibilityPlayer;
       if (!edge && !playerChanged) return;
       if (edge) {
-        this.#lastVisibility = visible;
         this.#visibilityGeneration += 1;
-        this.#pageParticipant?.setVisible(visible);
+        this.#pageResources.setVisible(visible);
       }
       this.#visibilityPlayer = player;
       if (player === null) return;
       player.setVisibility(visible);
       this.#updatePlayback();
       const source = visible ? "visible" : "hidden";
-      this.#sendBinding(source);
+      this.#inputBinding.send(source);
       if (!visible) {
         if (
           this.#suspendedPlayer !== player &&
@@ -1714,10 +1527,9 @@ export function createAvalElementClass(
     #applyMotion(): void {
       const player = this.#player;
       if (player === null) return;
-      this.#observedMediaReduced = this.#media?.matches ?? null;
       const generation = this.#sourceGeneration;
       const reduced = this.#motionReduced(this.motion);
-      if (reduced) this.#cancelDecoderTicket();
+      if (reduced) this.#pageResources.cancelDecoderTicket();
       void player.setMotion(this.motion, reduced).then(() => {
         if (player === this.#player) this.#updatePlayback();
       }, (error) => {
@@ -1725,15 +1537,6 @@ export function createAvalElementClass(
           this.#publishFailure("readiness-failure", "motion", false, generation);
         }
       });
-    }
-
-    #reconcileMediaPreference(): void {
-      const reduced = this.#media?.matches;
-      if (reduced === undefined || reduced === this.#observedMediaReduced) return;
-      this.#observedMediaReduced = reduced;
-      if (this.motion !== "auto") return;
-      this.#motionGeneration += 1;
-      this.#applyMotion();
     }
 
     async #reconcileSelectionMotion(
@@ -1762,7 +1565,7 @@ export function createAvalElementClass(
 
     #motionReduced(policy: AvalMotion): boolean {
       return policy === "reduce" ||
-        policy === "auto" && this.#media?.matches === true;
+        policy === "auto" && this.#hostEnvironment.snapshot().reducedMotion;
     }
 
     #updatePlayback(): void {
@@ -1817,173 +1620,6 @@ export function createAvalElementClass(
       if (state !== undefined && state !== null) this.#scheduleRestart(player, state);
     }
 
-    #bindInputs(): void {
-      this.#unbindInputs();
-      if (this.bindings === "none" || this.#metadata === null || this.#player === null) return;
-      const target = this.interactionTarget;
-      if (target === null) {
-        if (this.interactionFor !== "") {
-          this.#publishFailure(
-            "interaction-target-unavailable",
-            "bind-inputs",
-            false,
-            Math.max(1, this.#sourceGeneration)
-          );
-        }
-        return;
-      }
-      const bindingEpoch = this.#bindingEpoch;
-      this.#boundInputTarget = target;
-      const current = (): boolean => bindingCurrent(
-        bindingEpoch,
-        this.#bindingEpoch,
-        target,
-        this.interactionTarget
-      );
-      const listen = (
-        eventTarget: EventTarget,
-        type: string,
-        operation: (event: Event) => void,
-        options?: boolean | AddEventListenerOptions
-      ): void => {
-        const listener = (event: Event): void => {
-          if (current()) operation(event);
-        };
-        this.#inputListeners.push({
-          target: eventTarget,
-          type,
-          listener,
-          ...(options === undefined ? {} : { options })
-        });
-        eventTarget.addEventListener(type, listener, options);
-      };
-      const bind = (
-        type: string,
-        operation: (event: Event) => void
-      ): void => listen(target, type, operation);
-      try {
-        bind("pointerenter", () => {
-          this.#hovered = true;
-          this.#sendBinding("pointer.enter");
-          this.#engagement();
-        });
-        bind("pointerleave", () => {
-          this.#hovered = false;
-          this.#sendBinding("pointer.leave");
-          this.#engagement();
-        });
-        bind("focusin", () => {
-          this.#focused = true;
-          this.#sendBinding("focus.in");
-          this.#engagement();
-        });
-        bind("focusout", () => this.#queueOwnedMicrotask(() => {
-          if (!current()) return;
-          this.#focused = target.contains(this.ownerDocument.activeElement);
-          if (!this.#focused) this.#sendBinding("focus.out");
-          this.#engagement();
-        }));
-        bind("click", () => this.#sendBinding("activate"));
-        const reconcileTouchHover = (event: Event): void => {
-          const hovered = event.composedPath().includes(target);
-          if (hovered === this.#hovered) return;
-          this.#hovered = hovered;
-          this.#engagement();
-        };
-        listen(this.ownerDocument, "pointerdown", (event) => {
-          const pointerType = (event as Partial<PointerEvent>).pointerType;
-          if (pointerType !== "touch" && pointerType !== "pen") return;
-          reconcileTouchHover(event);
-        }, true);
-        listen(this.ownerDocument, "pointerup", (event) => {
-          const pointerType = (event as Partial<PointerEvent>).pointerType;
-          if (
-            (pointerType !== "touch" && pointerType !== "pen") ||
-            event.composedPath().includes(target)
-          ) return;
-          const activeElement = this.ownerDocument.activeElement;
-          if (activeElement === null || !target.contains(activeElement)) return;
-          const blur = (activeElement as Partial<HTMLElement>).blur;
-          if (typeof blur !== "function") return;
-          try { blur.call(activeElement); }
-          catch { /* The focus level remains authoritative. */ }
-        }, true);
-        this.#hovered = target.matches(":hover");
-        this.#focused = target.contains(this.ownerDocument.activeElement);
-        this.#sendBinding(this.#hovered ? "pointer.enter" : "pointer.leave");
-        this.#sendBinding(this.#focused ? "focus.in" : "focus.out");
-        this.#engagement(true);
-      } catch {
-        this.#unbindInputs();
-      }
-    }
-
-    #unbindInputs(): void {
-      this.#bindingEpoch += 1;
-      const listeners = this.#inputListeners;
-      this.#inputListeners = [];
-      this.#boundInputTarget = null;
-      for (const { target, type, listener, options } of listeners) this.#attemptRelease(
-        "listener",
-        () => target.removeEventListener(type, listener, options)
-      );
-      this.#hovered = false;
-      this.#focused = false;
-      this.#engagementBinding.reset();
-    }
-
-    #engagement(force = false): void {
-      const engaged = this.#hovered || this.#focused;
-      this.#engagementBinding.update(engaged, force);
-    }
-
-    #queueEngagementRetry(): void {
-      const bindingEpoch = this.#bindingEpoch;
-      const target = this.#boundInputTarget;
-      queueOwnedEventFollowup(
-        (operation) => this.#events.after(operation),
-        (delta) => { this.#deferredCommandCount += delta; },
-        () => {
-          if (
-            target === null ||
-            !bindingCurrent(
-              bindingEpoch,
-              this.#bindingEpoch,
-              target,
-              this.#boundInputTarget
-            ) ||
-            target !== this.interactionTarget
-          ) return;
-          this.#engagementBinding.retry(this.#hovered || this.#focused);
-        }
-      );
-    }
-
-    #sendBinding(source: string): boolean | null {
-      if (this.bindings === "none") return null;
-      this.#trace.record(
-        `input-${source.replaceAll(".", "-")}`,
-        Math.max(1, this.#sourceGeneration)
-      );
-      let result: boolean | null = null;
-      for (const binding of this.#metadata?.bindings ?? []) {
-        if (binding.source !== source) continue;
-        const accepted = this.send(binding.event);
-        result = result === null ? accepted : result || accepted;
-      }
-      return result;
-    }
-
-    #resolveInteractionTarget(): Element | null {
-      const id = this.interactionFor;
-      if (id === "") return this;
-      const root = this.getRootNode();
-      if ("getElementById" in root && typeof root.getElementById === "function") {
-        return root.getElementById(id);
-      }
-      return null;
-    }
-
     #current(generation: number, token: number): boolean {
       return this.#generationCurrent(generation, token) &&
         this.#controller?.signal.aborted === false;
@@ -2006,98 +1642,19 @@ export function createAvalElementClass(
       return false;
     }
 
-    #documentVisible(): boolean {
-      return !this.#pageHidden && this.ownerDocument.visibilityState !== "hidden";
-    }
-
-    #effectiveVisibility(): boolean {
-      return this.#documentVisible() && this.#intersecting && this.#positiveBox;
-    }
-
-    #ensurePageParticipant(): PageDecoderParticipant {
-      if (this.#pageParticipant !== null) return this.#pageParticipant;
-      const realm = this.ownerDocument.defaultView ?? globalThis;
-      this.#pageRealm = realm;
-      return this.#pageParticipant = createPageDecoderParticipant(
-        this.effectivelyVisible,
-        realm
-      );
-    }
-
-    #setResourceBytes(bytes: number): void {
-      const participant = this.#pageParticipant;
-      if (participant === null) {
-        if (bytes !== 0) throw new Error("AVAL page participant is unavailable");
-        this.#resourceBytes = 0;
-        return;
-      }
-      participant.setPhysicalBytes(bytes);
-      this.#resourceBytes = bytes;
-    }
-
-    #claimDecoder(generation: number, token: number): boolean {
-      if (!this.#current(generation, token)) return false;
-      if (this.#decoderLease !== null) return true;
-      if (this.#decoderTicket !== null) return false;
-      const epoch = this.#sourceRequestEpoch;
-      const ticket = this.#ensurePageParticipant().request();
-      const lease = ticket.take();
-      if (lease !== null) {
-        this.#decoderLease = lease;
-        return true;
-      }
-      this.#decoderTicket = ticket;
-      void ticket.wait().then((granted) => {
-        if (
-          this.#decoderTicket !== ticket || this.#finalDisposed ||
-          !this.#connected || epoch !== this.#sourceRequestEpoch ||
-          !this.#current(generation, token)
-        ) {
-          granted.release();
-          return;
+    #decoderGranted(generation: number): void {
+      if (
+        this.#finalDisposed || !this.#connected ||
+        generation !== this.#sourceGeneration
+      ) return;
+      const player = this.#player;
+      if (player !== null && !this.#reloadQueued) {
+        const state = player.snapshot(false).requestedState ??
+          this.#requestedState ?? this.#metadata?.initialState;
+        if (state !== undefined && state !== null) {
+          this.#scheduleRestart(player, state);
         }
-        this.#decoderTicket = null;
-        this.#decoderLease = granted;
-        const player = this.#player;
-        if (player !== null && !this.#reloadQueued) {
-          const state = player.snapshot(false).requestedState ??
-            this.#requestedState ?? this.#metadata?.initialState;
-          if (state !== undefined && state !== null) {
-            this.#scheduleRestart(player, state);
-          }
-        }
-      }, () => {
-        if (this.#decoderTicket === ticket) this.#decoderTicket = null;
-      });
-      return false;
-    }
-
-    #invalidateSourceRequest(): void {
-      this.#sourceRequestEpoch += 1;
-      this.#cancelDecoderTicket();
-    }
-
-    #releaseDecoder(): void {
-      this.#cancelDecoderTicket();
-      this.#releaseDecoderLease();
-    }
-
-    #cancelDecoderTicket(): void {
-      this.#decoderTicket?.cancel();
-      this.#decoderTicket = null;
-    }
-
-    #releaseDecoderLease(): void {
-      this.#decoderLease?.release();
-      this.#decoderLease = null;
-    }
-
-    #releasePageResources(forgetRealm = false): void {
-      this.#releaseDecoder();
-      this.#pageParticipant?.dispose();
-      this.#pageParticipant = null;
-      this.#resourceBytes = 0;
-      if (forgetRealm) this.#pageRealm = null;
+      }
     }
 
     #captureCleanupFailures(snapshot: Readonly<PlayerSnapshot> | null): void {
@@ -2180,42 +1737,20 @@ export function createAvalElementClass(
       );
     }
 
-    #pageSnapshot(): Readonly<PageResourcesSnapshot> {
-      return pageResourcesSnapshot(
-        this.#pageRealm ?? this.ownerDocument.defaultView ?? globalThis
-      );
-    }
-
-    #decoderState(): string | null {
-      if (this.#decoderLease !== null) return "granted";
-      return this.#decoderTicket?.state() ?? null;
-    }
-
-    #ownershipSnapshot(terminal: boolean): Readonly<Record<string, unknown>> {
-      const failedListeners = this.#failedReleases.filter(
-        (owner) => owner.kind === "listener"
-      ).length;
-      const failedObservers = this.#failedReleases.length - failedListeners;
-      const listenerCount = this.#inputListeners.length +
-        Number(this.#documentListener !== null) +
-        Number(this.#media !== null && this.#mediaListener !== null) +
-        Number(this.#windowListener !== null) +
-        Number(this.#pageHideListener !== null) +
-        Number(this.#pageShowListener !== null) + failedListeners;
-      const observerCount = Number(this.#sourceObserving) +
-        Number(this.#resizeObserver !== null) +
-        Number(this.#intersectionObserver !== null) + failedObservers;
+    #ownershipSnapshot(terminal: boolean): Readonly<ElementOwnershipSnapshot> {
+      const host = this.#hostEnvironment.snapshot();
+      const input = this.#inputBinding.snapshot();
       const pendingCommandCount = this.#lifecycle.pending +
         Number(this.#reloadQueued) + Number(this.#suspension !== null) +
-        Number(this.#restartPlayer !== null) + this.#deferredCommandCount;
-      return createOwnershipSnapshot(
+        Number(this.#restartPlayer !== null) +
+        this.#eventMutations.pendingOperationCount;
+      return createElementOwnershipSnapshot({
         terminal,
-        listenerCount,
-        observerCount,
-        pendingCommandCount,
-        this.#timerCount,
-        this.#failedReleases.length
-      );
+        input,
+        host,
+        deferredOperationCount: pendingCommandCount,
+        timerCount: this.#timerCount
+      });
     }
 
     #diagnostics(trace: boolean): Readonly<AvalDiagnostics> {
@@ -2235,9 +1770,12 @@ export function createAvalElementClass(
         );
       }
       const ownership = this.#ownershipSnapshot(this.#finalDisposed);
-      const page = this.#pageSnapshot();
+      const pageResources = this.#pageResources.snapshot();
+      const page = pageResources.page;
+      const participant = pageResources.ownership;
+      const host = this.#hostEnvironment.snapshot();
       const reduced = this.motion === "reduce" ||
-        this.motion === "auto" && this.#media?.matches === true;
+        this.motion === "auto" && host.reducedMotion;
       const diagnostics = {
         elementGeneration: this.#elementGeneration,
         sourceGeneration: this.#sourceGeneration,
@@ -2262,7 +1800,7 @@ export function createAvalElementClass(
           Object.freeze({ ...binding })
         )),
         configuredMotion: this.motion,
-        hostReducedMotion: this.#media?.matches ?? null,
+        hostReducedMotion: host.observedReducedMotion,
         autoplay: this.autoplay,
         fit: this.fit,
         lastFailure: this.getSnapshot().lastError?.failure ?? null,
@@ -2273,16 +1811,20 @@ export function createAvalElementClass(
             this.#player === runtimePlayer ? runtime.contextRecoveryCount : 0
           )
         }),
-        cleanup: this.#cleanup,
-        elementOwnership: ownership,
-        terminalCleanup: this.#terminalCleanup,
+        cleanup: this.#cleanup === null
+          ? null
+          : serializeSourceCleanupReceipt(this.#cleanup),
+        elementOwnership: serializeElementOwnershipSnapshot(ownership),
+        terminalCleanup: this.#terminalCleanup === null
+          ? null
+          : serializeElementTerminalCleanupProof(this.#terminalCleanup),
         outstanding: Object.freeze({
           player: runtimePlayer === null ? 0 : 1,
           decoder: outstandingDecoder(
             runtime.workerCount,
-            this.#decoderState()
+            participant.decoderState
           ),
-          bytes: this.#resourceBytes
+          bytes: participant.logicalBytes
         }),
         runtime: Object.freeze({
           selectedRendition: runtime.selectedRendition,
@@ -2298,10 +1840,10 @@ export function createAvalElementClass(
           pendingLoads: runtime.pendingLoads,
           interestedWaiters: runtime.interestedWaiters,
           stalePublicationCount: this.#stalePublicationCount,
-          playerTrackedBytes: this.#resourceBytes,
+          playerTrackedBytes: participant.logicalBytes,
           pagePhysicalBytes: page.physicalBytes,
-          activeLeaseCount: Number(this.#decoderLease !== null),
-          decoderLeaseState: this.#decoderState(),
+          activeLeaseCount: participant.activeLeaseCount,
+          decoderLeaseState: participant.decoderState,
           pageActiveDecoderSlotCount: page.active,
           pageQueuedDecoderTicketCount: page.queued,
           pageParkedDecoderTicketCount: page.parked,
@@ -2319,7 +1861,7 @@ export function createAvalElementClass(
         }),
         motion: Object.freeze({
           configured: this.motion,
-          hostReducedMotion: this.#media?.matches ?? null,
+          hostReducedMotion: host.observedReducedMotion,
           effective: reduced ? "reduce" : "full",
           actual: this.#mode
         }),
@@ -2329,11 +1871,11 @@ export function createAvalElementClass(
           paused: this.paused
         }),
         visibility: Object.freeze({
-          documentVisible: this.#documentVisible(),
-          intersecting: this.#intersecting,
-          positiveBox: this.#positiveBox,
+          documentVisible: host.documentVisible,
+          intersecting: host.intersecting,
+          positiveBox: host.positiveBox,
           effectivelyVisible: this.effectivelyVisible,
-          observerSupported: this.#intersectionObserver !== null,
+          observerSupported: host.observerSupported,
           runtimeVisibility: runtimeVisibility(
             runtimePlayer !== null,
             this.effectivelyVisible
@@ -2355,43 +1897,12 @@ export function createAvalElementClass(
               runtimeTrace: runtime.trace
             }
           : {})
-      };
-      return Object.freeze(diagnostics) as unknown as Readonly<AvalDiagnostics>;
+      } satisfies AvalDiagnostics;
+      return Object.freeze(diagnostics);
     }
   }
 
   return AvalElementImpl as unknown as AvalElementConstructor;
-}
-
-export function removeInstalledListeners(
-  documentTarget: Pick<Document, "removeEventListener"> | null,
-  viewTarget: Pick<Window, "removeEventListener"> | null,
-  documentListener: (() => void) | null,
-  windowListener: (() => void) | null,
-  pageHideListener: EventListener | null = null,
-  pageShowListener: EventListener | null = null
-): boolean {
-  let complete = true;
-  const attempt = (operation: () => void): void => {
-    try { operation(); } catch { complete = false; }
-  };
-  if (documentListener !== null) {
-    attempt(() => documentTarget?.removeEventListener("visibilitychange", documentListener));
-  }
-  if (windowListener !== null) {
-    attempt(() => viewTarget?.removeEventListener("resize", windowListener));
-  }
-  if (pageHideListener !== null) {
-    attempt(() => viewTarget?.removeEventListener("pagehide", pageHideListener));
-  }
-  if (pageShowListener !== null) {
-    attempt(() => viewTarget?.removeEventListener("pageshow", pageShowListener));
-  }
-  return complete;
-}
-
-export function persistedPageShow(event: Event): boolean {
-  return "persisted" in event && event.persisted === true;
 }
 
 export function runtimeHostSupported(
@@ -2446,13 +1957,6 @@ export function createElementTiming(
   });
 }
 
-export function needsIntersectionSample(
-  intersectionKnown: boolean,
-  documentVisible: boolean
-): boolean {
-  return !intersectionKnown && documentVisible;
-}
-
 export function deferAcceptedSend(
   canSend: () => boolean,
   defer: (operation: () => void) => boolean,
@@ -2461,47 +1965,6 @@ export function deferAcceptedSend(
   if (!canSend()) return false;
   if (!defer(send)) return false;
   return true;
-}
-
-export function deferAttributeEffect(
-  pending: Set<string>,
-  name: string,
-  defer: (operation: () => void) => boolean,
-  read: () => string | null,
-  apply: (value: string | null) => void
-): boolean {
-  if (pending.has(name)) return true;
-  pending.add(name);
-  const accepted = defer(() => {
-    pending.delete(name);
-    apply(read());
-  });
-  if (!accepted) pending.delete(name);
-  return accepted;
-}
-
-export function queueOwnedMicrotask(
-  pending: (delta: 1 | -1) => void,
-  operation: () => void
-): void {
-  pending(1);
-  queueMicrotask(() => {
-    pending(-1);
-    operation();
-  });
-}
-
-/** Runs after listener-deferred public work while retaining cleanup ownership. */
-export function queueOwnedEventFollowup(
-  after: (operation: () => void) => Promise<void>,
-  pending: (delta: 1 | -1) => void,
-  operation: () => void
-): void {
-  pending(1);
-  void after(() => {
-    pending(-1);
-    operation();
-  });
 }
 
 export async function failedGenerationCleanup(
@@ -2542,29 +2005,6 @@ export function motionSelectionChanged(
   return selectedPolicy !== currentPolicy || selectedReduced !== currentReduced;
 }
 
-export function bindingCurrent(
-  expectedEpoch: number,
-  currentEpoch: number,
-  expectedTarget: object,
-  currentTarget: object | null
-): boolean {
-  return expectedEpoch === currentEpoch && expectedTarget === currentTarget;
-}
-
-export function interactionTarget(
-  host: HTMLElement,
-  value: Element | null
-): Element | null {
-  const Constructor = host.ownerDocument.defaultView?.Element;
-  if (value !== null && (Constructor === undefined || !(value instanceof Constructor))) {
-    throw new TypeError("interactionTarget must be a current-realm Element or null");
-  }
-  if (value !== null && value.getRootNode() !== host.getRootNode()) {
-    throw new TypeError("interactionTarget must share the element root");
-  }
-  return value;
-}
-
 export function publicFailureCode(
   code: FailureInput
 ): AvalPublicFailure["code"] {
@@ -2602,252 +2042,6 @@ export function runtimeSuspension(
 ): "active" | "suspending" | "suspended" | null {
   if (!hasRuntime) return null;
   return suspending ? "suspending" : suspended ? "suspended" : "active";
-}
-
-export interface SourceRead {
-  readonly sources: readonly Readonly<Source>[];
-  readonly failures: readonly Readonly<{
-    sourceIndex: number;
-    attribute: "src" | "data-codec" | "integrity";
-  }>[];
-}
-
-export function readSources(host: HTMLElement): Readonly<SourceRead> {
-  const sources: Readonly<Source>[] = [];
-  const codecDeclarations: Array<Readonly<{
-    codec: Source["codec"];
-    sourceIndex: number;
-  }>> = [];
-  const failures: Array<Readonly<{
-    sourceIndex: number;
-    attribute: "src" | "data-codec" | "integrity";
-  }>> = [];
-  const children = host.children;
-  let sourceIndex = 0;
-  for (let index = 0; index < children.length; index += 1) {
-    const element = children.item(index);
-    if (element?.localName !== "source" ||
-      element.namespaceURI !== "http://www.w3.org/1999/xhtml") continue;
-    let src = "";
-    let codec: Source["codec"] | undefined;
-    let integrity = "";
-    let valid = true;
-    try { src = normalizeSource(element.getAttribute("src") ?? ""); }
-    catch {
-      valid = false;
-      failures.push(Object.freeze({ sourceIndex, attribute: "src" }));
-    }
-    try {
-      codec = sourceCodec(element.getAttribute("data-codec"));
-      if (codec === undefined) throw new TypeError();
-      codecDeclarations.push(Object.freeze({ codec, sourceIndex }));
-    } catch {
-      valid = false;
-      failures.push(Object.freeze({ sourceIndex, attribute: "data-codec" }));
-    }
-    try {
-      const value = element.getAttribute("integrity");
-      integrity = value === null ? "" : normalizeIntegrity(value);
-    } catch {
-      valid = false;
-      failures.push(Object.freeze({ sourceIndex, attribute: "integrity" }));
-    }
-    if (valid && codec !== undefined) {
-      sources.push(Object.freeze({ src, codec, integrity, sourceIndex }));
-    }
-    sourceIndex += 1;
-  }
-  const counts = new Map<Source["codec"], number>();
-  for (const declaration of codecDeclarations) {
-    counts.set(
-      declaration.codec,
-      (counts.get(declaration.codec) ?? 0) + 1
-    );
-  }
-  const duplicateCodecs = new Set(
-    [...counts].filter(([, count]) => count > 1).map(([codec]) => codec)
-  );
-  for (const declaration of codecDeclarations) {
-    if (duplicateCodecs.has(declaration.codec)) {
-      failures.push(Object.freeze({
-        sourceIndex: declaration.sourceIndex,
-        attribute: "data-codec"
-      }));
-    }
-  }
-  failures.sort((left, right) => left.sourceIndex - right.sourceIndex);
-  const prioritized = sources
-    .filter((source) => !duplicateCodecs.has(source.codec))
-    .sort((left, right) => compareSourceCodec(left.codec, right.codec));
-  return Object.freeze({
-    sources: Object.freeze(prioritized),
-    failures: Object.freeze(failures)
-  });
-}
-
-export function sourceMutation(
-  host: HTMLElement,
-  record: MutationRecord
-): boolean {
-  if (record.type === "childList") {
-    return record.target === host &&
-      [...record.addedNodes, ...record.removedNodes].some((node) =>
-        node.nodeType === 1 &&
-        (node as Element).localName === "source" &&
-        (node as Element).namespaceURI === "http://www.w3.org/1999/xhtml"
-      );
-  }
-  const target = record.target as Element;
-  return target.localName === "source" &&
-    target.namespaceURI === "http://www.w3.org/1999/xhtml" &&
-    target.parentElement === host;
-}
-
-export function createCleanupReceipt(
-  elementGeneration: number,
-  sourceGeneration: number,
-  runtime: Readonly<PlayerSnapshot> | null,
-  page: Readonly<PageResourcesSnapshot>,
-  retiredDeclaredFileBytes: number,
-  operationFailed: boolean,
-  participantDisposed: boolean,
-  participantLogicalBytes: number,
-  participantDecoderState: string | null,
-  terminal: boolean,
-  stalePublicationCount = 0
-): Readonly<Record<string, unknown>> {
-  const workerCount = runtime?.workerCount ?? 0;
-  const openFrames = runtime?.openFrames ?? 0;
-  const activeTransportBodies = runtime?.activeTransportBodies ?? 0;
-  const pendingLoads = runtime?.pendingLoads ?? 0;
-  const interestedWaiters = runtime?.interestedWaiters ?? 0;
-  const pendingRuntimeOperations = runtime?.presentation.pendingOperations ?? 0;
-  const sourceCopiesInFlight = runtime?.presentation.sourceCopiesInFlight ?? 0;
-  const rendererStagingBytes = runtime?.presentation.stagingBytes ?? 0;
-  const rendererResidentBytes = runtime?.presentation.residentBytes ?? 0;
-  const rendererTextureBytes = runtime?.presentation.textureBytes ?? 0;
-  const rendererRuntimeBytes = runtime?.presentation.runtimeBytes ?? 0;
-  const rendererBackingBytes = runtime === null ? 0
-    : runtime.presentation.backingWidth * runtime.presentation.backingHeight;
-  const observedRendererCategories = [
-    rendererBackingBytes,
-    rendererStagingBytes,
-    rendererResidentBytes,
-    rendererTextureBytes,
-    rendererRuntimeBytes
-  ].filter((bytes) => bytes !== 0).length;
-  const rendererResourceCount = runtime?.presentation.resourceCount ??
-    (observedRendererCategories === 0 ? 0 : 1);
-  const contextListenerCount = runtime?.presentation.contextListenerCount ??
-    (rendererResourceCount === 0 ? 0 : 1);
-  const playerDisposed = playerSnapshotDisposed(runtime);
-  const participantRegistered = !participantDisposed;
-  const participantActiveLeaseCount = participantDecoderState === "granted" ? 1 : 0;
-  const participantDecoderTicketCount = participantDecoderState === null ? 0 : 1;
-  const failureCount = [
-    operationFailed,
-    runtime === null,
-    !playerDisposed,
-    !participantDisposed,
-    participantRegistered,
-    participantLogicalBytes !== 0,
-    participantActiveLeaseCount !== 0,
-    participantDecoderTicketCount !== 0
-  ].filter(Boolean).length;
-  return Object.freeze({
-    elementGeneration,
-    sourceGeneration,
-    completed: failureCount === 0,
-    failureCount,
-    playerDisposed,
-    participantDisposed,
-    participantRegistered,
-    participantLogicalBytes,
-    participantActiveLeaseCount,
-    participantRegisteredCleanupCount: 0,
-    participantTrackedWorkCount: 0,
-    participantPendingWaitCount: 0,
-    participantDecoderTicketCount,
-    participantDecoderState,
-    workerCount,
-    openFrames,
-    pendingRuntimeOperations,
-    sourceCopiesInFlight,
-    rendererStagingBytes,
-    pendingLoads,
-    activeTransportBodies,
-    interestedWaiters,
-    rendererResourceCount,
-    contextListenerCount,
-    stalePublicationCount,
-    pagePhysicalBytes: page.physicalBytes,
-    pageParticipantCount: page.participants,
-    pageActiveDecoderSlotCount: page.active,
-    pageQueuedDecoderTicketCount: page.queued,
-    pageParkedDecoderTicketCount: page.parked,
-    terminal,
-    retiredDeclaredFileBytes
-  });
-}
-
-export function playerSnapshotDisposed(
-  runtime: Readonly<PlayerSnapshot> | null
-): boolean {
-  if (runtime === null) return false;
-  const presentation = runtime.presentation;
-  const staging = presentation.stagingBytes ?? 0;
-  const resident = presentation.residentBytes ?? 0;
-  const texture = presentation.textureBytes ?? 0;
-  const renderer = presentation.runtimeBytes ?? 0;
-  const observed = [
-    presentation.backingWidth * presentation.backingHeight,
-    staging,
-    resident,
-    texture,
-    renderer
-  ].some((bytes) => bytes !== 0);
-  const resources = presentation.resourceCount ?? (observed ? 1 : 0);
-  const listeners = presentation.contextListenerCount ?? (resources === 0 ? 0 : 1);
-  return runtime.workerCount === 0 && runtime.openFrames === 0 &&
-    runtime.declaredFileBytes === 0 && runtime.metadataBytes === 0 &&
-    runtime.verifiedBytes === 0 && runtime.residentBlobBytes === 0 &&
-    runtime.activeTransportBodies === 0 && runtime.pendingLoads === 0 &&
-    runtime.interestedWaiters === 0 && (presentation.pendingOperations ?? 0) === 0 &&
-    (presentation.sourceCopiesInFlight ?? 0) === 0 && presentation.backingWidth === 0 &&
-    presentation.backingHeight === 0 && staging === 0 && resident === 0 &&
-    texture === 0 && renderer === 0 && resources === 0 && listeners === 0;
-}
-
-export function createOwnershipSnapshot(
-  terminal: boolean,
-  listenerCount: number,
-  observerCount: number,
-  pendingCommandCount: number,
-  timerCount = 0,
-  failedReleaseCount = 0
-): Readonly<Record<string, unknown>> {
-  const completed = terminal && listenerCount === 0 && observerCount === 0 &&
-    pendingCommandCount === 0 && timerCount === 0 && failedReleaseCount === 0;
-  return Object.freeze({
-    listenerCount,
-    observerCount,
-    brokerSubscriptionCount: 0,
-    timerCount,
-    pendingCommandCount,
-    failedReleaseCount,
-    retainedRetryCount: failedReleaseCount,
-    releaseFailureCount: failedReleaseCount,
-    completed
-  });
-}
-
-export function proveRetirement(
-  disposed: boolean,
-  receipt: Readonly<Record<string, unknown>>
-): boolean {
-  if (!disposed) return false;
-  if (receipt.completed !== true) throw new ElementCleanupIncompleteError();
-  return true;
 }
 
 export function resumeCurrent(

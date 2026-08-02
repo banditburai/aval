@@ -2,21 +2,28 @@ import { describe, expect, it } from "vitest";
 
 import { ELEMENT_DECODER_CAPACITY } from "../src/decoder-capacity.js";
 import {
+  createElementOwnershipSnapshot,
+  createPageResourceOwnership,
+  createSourceCleanupReceipt,
+  proveSourceRetirement,
+  serializeElementOwnershipSnapshot,
+  serializeSourceCleanupReceipt,
+  type SourceCleanupInput,
+  type SourceCleanupReceipt
+} from "../src/element-cleanup-proof.js";
+import {
   contextRecoveryCount,
   outstandingDecoder,
   runtimeSuspension,
   runtimeVisibility,
   resumeCurrent,
-  transitioningState,
-  createCleanupReceipt,
-  createOwnershipSnapshot,
-  proveRetirement
+  transitioningState
 } from "../src/aval-element.js";
 import type { PlayerSnapshot } from "../src/player-contract.js";
 
 describe("diagnostics", () => {
   it("preserves page totals belonging to other players in a successful cleanup", () => {
-    const receipt = createCleanupReceipt(
+    const receipt = cleanupReceipt(
       2,
       7,
       runtime(),
@@ -54,7 +61,7 @@ describe("diagnostics", () => {
   });
 
   it("fails closed and reports real remaining player and participant work", () => {
-    const receipt = createCleanupReceipt(
+    const receipt = cleanupReceipt(
       1,
       3,
       runtime({
@@ -104,7 +111,7 @@ describe("diagnostics", () => {
   });
 
   it("derives ownership completion from measured live counts", () => {
-    expect(createOwnershipSnapshot(false, 4, 3, 1)).toEqual({
+    expect(ownershipSnapshot(false, 4, 3, 1)).toEqual({
       listenerCount: 4,
       observerCount: 3,
       brokerSubscriptionCount: 0,
@@ -115,20 +122,20 @@ describe("diagnostics", () => {
       releaseFailureCount: 0,
       completed: false
     });
-    expect(createOwnershipSnapshot(true, 0, 0, 0)).toMatchObject({
+    expect(ownershipSnapshot(true, 0, 0, 0)).toMatchObject({
       listenerCount: 0,
       observerCount: 0,
       pendingCommandCount: 0,
       completed: true
     });
-    expect(createOwnershipSnapshot(true, 0, 0, 0, 1)).toMatchObject({
+    expect(ownershipSnapshot(true, 0, 0, 0, 1)).toMatchObject({
       timerCount: 1,
       completed: false
     });
   });
 
   it("does not fabricate cleanup success when the terminal snapshot is unavailable", () => {
-    const receipt = createCleanupReceipt(
+    const receipt = cleanupReceipt(
       1,
       1,
       null,
@@ -150,7 +157,7 @@ describe("diagnostics", () => {
   });
 
   it("keeps a granted participant lease visible in fail-closed cleanup", () => {
-    const receipt = createCleanupReceipt(
+    const receipt = cleanupReceipt(
       1,
       2,
       runtime(),
@@ -176,7 +183,7 @@ describe("diagnostics", () => {
     let authorityRetained = true;
     let successorStarted = false;
     const retire = async (): Promise<void> => {
-      const receipt = createCleanupReceipt(
+      const receipt = cleanupProof(
         1,
         1,
         runtime({ sourceCopiesInFlight }),
@@ -188,7 +195,7 @@ describe("diagnostics", () => {
         null,
         true
       );
-      if (proveRetirement(true, receipt)) authorityRetained = false;
+      if (proveSourceRetirement(true, receipt)) authorityRetained = false;
     };
 
     await expect(retire()).rejects.toMatchObject({ name: "OperationError" });
@@ -254,6 +261,81 @@ describe("diagnostics", () => {
     expect(contextRecoveryCount(7, 0)).toBe(7);
   });
 });
+
+function cleanupReceipt(
+  generation: number,
+  sourceGeneration: number,
+  player: Readonly<PlayerSnapshot> | null,
+  page: SourceCleanupInput["page"],
+  retiredDeclaredFileBytes: number,
+  operationFailed: boolean,
+  participantDisposed: boolean,
+  participantLogicalBytes: number,
+  participantDecoderState: Parameters<typeof createPageResourceOwnership>[2],
+  terminal: boolean
+) {
+  return serializeSourceCleanupReceipt(cleanupProof(
+    generation,
+    sourceGeneration,
+    player,
+    page,
+    retiredDeclaredFileBytes,
+    operationFailed,
+    participantDisposed,
+    participantLogicalBytes,
+    participantDecoderState,
+    terminal
+  ));
+}
+
+function cleanupProof(
+  generation: number,
+  sourceGeneration: number,
+  runtime: Readonly<PlayerSnapshot> | null,
+  page: SourceCleanupInput["page"],
+  retiredDeclaredFileBytes: number,
+  operationFailed: boolean,
+  participantDisposed: boolean,
+  participantLogicalBytes: number,
+  participantDecoderState: Parameters<typeof createPageResourceOwnership>[2],
+  terminal: boolean
+): Readonly<SourceCleanupReceipt> {
+  return createSourceCleanupReceipt({
+    generation,
+    sourceGeneration,
+    runtime,
+    page,
+    retiredDeclaredFileBytes,
+    operationFailed,
+    pageResources: createPageResourceOwnership(
+      participantDisposed,
+      participantLogicalBytes,
+      participantDecoderState
+    ),
+    terminal
+  });
+}
+
+function ownershipSnapshot(
+  terminal: boolean,
+  listenerCount: number,
+  observerCount: number,
+  deferredOperationCount: number,
+  timerCount = 0
+) {
+  return serializeElementOwnershipSnapshot(createElementOwnershipSnapshot({
+    terminal,
+    input: { listenerCount, failedReleaseCount: 0 },
+    host: {
+      listenerCount: 0,
+      observerCount,
+      failedListenerReleaseCount: 0,
+      failedObserverReleaseCount: 0
+    },
+    deferredOperationCount,
+    timerCount
+  }));
+}
 
 function runtime(
   override: Readonly<{

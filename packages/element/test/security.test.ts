@@ -3,9 +3,9 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  publicFailureCode,
-  readSources
+  publicFailureCode
 } from "../src/aval-element.js";
+import { readElementSources } from "../src/element-sources.js";
 
 describe("element trust boundary", () => {
   it("never copies secret transport data into source failures", () => {
@@ -21,7 +21,7 @@ describe("element trust boundary", () => {
         integrity: "sha256-secret"
       })[name] ?? null
     } as unknown as Element;
-    const read = readSources({
+    const read = readElementSources({
       children: {
         length: 1,
         item: () => source

@@ -1246,6 +1246,30 @@ describe("element lifecycle regressions", () => {
     });
   });
 
+  it("returns one deferred disposal operation during public event dispatch", async () => {
+    harness.brokerMode = "immediate";
+    const { element } = createConnectedElement("motion.avl");
+    await element.prepare();
+    let first: Promise<void> | null = null;
+    let second: Promise<void> | null = null;
+    element.addEventListener("error", () => {
+      first = element.dispose();
+      second = element.dispose();
+    }, { once: true });
+
+    playerAt(0).failActive();
+    await eventually(() => first !== null);
+    const disposal = first;
+    if (disposal === null) throw new Error("dispose was not deferred");
+    expect(second).toBe(disposal);
+    await expect(disposal).resolves.toBeUndefined();
+    expect(element.getDiagnostics()).toMatchObject({
+      finalDisposed: true,
+      terminalCleanup: { completed: true },
+      elementOwnership: { pendingCommandCount: 0, completed: true }
+    });
+  });
+
   it("does not publish an old failure when cleanup is superseded", async () => {
     harness.brokerMode = "immediate";
     harness.failNextPrepareGeneric = true;

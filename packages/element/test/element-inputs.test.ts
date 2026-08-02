@@ -2,29 +2,31 @@ import { describe, expect, it } from "vitest";
 
 import { ElementEventMutationGate } from "../src/element-event-mutation-gate.js";
 import { ElementPublicEvents } from "../src/element-public-events.js";
+import { createElementOwnershipSnapshot } from "../src/element-cleanup-proof.js";
 import {
-  bindingCurrent,
+  isElementSourceMutation as sourceMutation,
+  readElementSources as readSources
+} from "../src/element-sources.js";
+import {
   deferAcceptedSend,
-  deferAttributeEffect,
   failedGenerationCleanup,
   initialPresentation,
-  interactionTarget,
   intrinsicRatio,
   motionSelectionChanged,
-  needsIntersectionSample,
-  persistedPageShow,
   publicFailureCode,
-  queueOwnedEventFollowup,
-  queueOwnedMicrotask,
   runtimeHostSupported,
-  sourceMutation,
   createElementTiming,
   createRealmPlatform,
-  readSources,
-  rebindAdoptedStyles,
-  removeInstalledListeners,
-  createOwnershipSnapshot
+  rebindAdoptedStyles
 } from "../src/aval-element.js";
+import {
+  needsIntersectionSample,
+  persistedPageShow
+} from "../src/element-host-environment.js";
+import {
+  bindingCurrent,
+  validateInteractionTarget
+} from "../src/element-input-binding.js";
 
 const HTML = "http://www.w3.org/1999/xhtml";
 
@@ -395,31 +397,7 @@ describe("element inputs", () => {
     expect(oldTiming).not.toBe(adoptedTiming);
   });
 
-  it("removes listeners from the exact installed realm and rebinds styles to the new one", () => {
-    const removed: string[] = [];
-    const documentTarget = {
-      removeEventListener: (type: string) => { removed.push(`document:${type}`); }
-    } as unknown as Pick<Document, "removeEventListener">;
-    const viewTarget = {
-      removeEventListener: (type: string) => { removed.push(`view:${type}`); }
-    } as unknown as Pick<Window, "removeEventListener">;
-    const listener = (): void => undefined;
-    const pageListener: EventListener = () => undefined;
-    removeInstalledListeners(
-      documentTarget,
-      viewTarget,
-      listener,
-      listener,
-      pageListener,
-      pageListener
-    );
-    expect(removed).toEqual([
-      "document:visibilitychange",
-      "view:resize",
-      "view:pagehide",
-      "view:pageshow"
-    ]);
-
+  it("rebinds styles to the adopted document", () => {
     const adoptedDocument = {} as Document;
     let reboundTo: Document | null = null;
     expect(rebindAdoptedStyles({
@@ -464,19 +442,38 @@ describe("element inputs", () => {
       getRootNode: () => root
     } as unknown as HTMLElement;
     const current = new CurrentElement(root) as unknown as Element;
-    expect(interactionTarget(host, current)).toBe(current);
-    expect(interactionTarget(host, null)).toBeNull();
-    expect(() => interactionTarget(
+    const currentRealm = (target: Element): boolean =>
+      target instanceof CurrentElement;
+    const rootOf = (target: Element): object => target.getRootNode();
+    expect(validateInteractionTarget(
       host,
-      new OldElement(root) as unknown as Element
+      current,
+      currentRealm,
+      rootOf
+    )).toBe(current);
+    expect(validateInteractionTarget(
+      host,
+      null,
+      currentRealm,
+      rootOf
+    )).toBeNull();
+    expect(() => validateInteractionTarget(
+      host,
+      new OldElement(root) as unknown as Element,
+      currentRealm,
+      rootOf
     )).toThrow("current-realm Element");
-    expect(() => interactionTarget(
+    expect(() => validateInteractionTarget(
       host,
-      { nodeType: 1, getRootNode: () => root } as unknown as Element
+      { nodeType: 1, getRootNode: () => root } as unknown as Element,
+      currentRealm,
+      rootOf
     )).toThrow("current-realm Element");
-    expect(() => interactionTarget(
+    expect(() => validateInteractionTarget(
       host,
-      new CurrentElement({}) as unknown as Element
+      new CurrentElement({}) as unknown as Element,
+      currentRealm,
+      rootOf
     )).toThrow("share the element root");
   });
 
@@ -487,13 +484,13 @@ describe("element inputs", () => {
     events.transaction(true);
     const accepted = deferAcceptedSend(
       () => true,
-      (operation) => mutations.defer(operation),
+      (operation) => mutations.deferCommand(operation),
       () => { order.push("second"); }
     );
     order.push(`listener:${String(accepted)}`);
     expect(deferAcceptedSend(
       () => false,
-      (operation) => mutations.defer(operation),
+      (operation) => mutations.deferCommand(operation),
       () => { order.push("unreachable"); }
     )).toBe(false);
     events.transaction(false);
@@ -507,22 +504,17 @@ describe("element inputs", () => {
   it("coalesces same-event B to C attributes and applies the final reflected value", async () => {
     const events = new ElementPublicEvents({} as HTMLElement);
     const mutations = new ElementEventMutationGate(events);
-    const pending = new Set<string>();
     const applied: Array<string | null> = [];
     let reflected: string | null = "B";
     events.transaction(true);
-    expect(deferAttributeEffect(
-      pending,
+    expect(mutations.deferAttribute(
       "state",
-      (operation) => mutations.defer(operation),
       () => reflected,
       (value) => { applied.push(value); }
     )).toBe(true);
     reflected = "C";
-    expect(deferAttributeEffect(
-      pending,
+    expect(mutations.deferAttribute(
       "state",
-      (operation) => mutations.defer(operation),
       () => reflected,
       (value) => { applied.push(value); }
     )).toBe(true);
@@ -533,41 +525,43 @@ describe("element inputs", () => {
   });
 
   it("counts a queued focusout microtask until it actually runs", async () => {
-    let pending = 0;
+    const events = new ElementPublicEvents({} as HTMLElement);
+    const mutations = new ElementEventMutationGate(events);
     let ran = false;
-    queueOwnedMicrotask(
-      (delta) => { pending += delta; },
-      () => { ran = true; }
-    );
-    expect(createOwnershipSnapshot(true, 0, 0, pending).completed).toBe(false);
-    await Promise.resolve();
+    mutations.queueOwnedMicrotask(() => { ran = true; });
+    expect(createElementOwnershipSnapshot({
+      terminal: true,
+      input: { listenerCount: 0, failedReleaseCount: 0 },
+      host: emptyHostOwnership(),
+      deferredOperationCount: mutations.pendingOperationCount
+    }).completed).toBe(false);
+    await settleMutationGate(mutations);
     expect(ran).toBe(true);
-    expect(createOwnershipSnapshot(true, 0, 0, pending).completed).toBe(true);
+    expect(createElementOwnershipSnapshot({
+      terminal: true,
+      input: { listenerCount: 0, failedReleaseCount: 0 },
+      host: emptyHostOwnership(),
+      deferredOperationCount: mutations.pendingOperationCount
+    }).completed).toBe(true);
   });
 
   it("runs engagement followups after listener-accepted sends", async () => {
     const events = new ElementPublicEvents({} as HTMLElement);
     const mutations = new ElementEventMutationGate(events);
     const order: string[] = [];
-    let pending = 0;
     events.transaction(true);
     expect(deferAcceptedSend(
       () => true,
-      (operation) => mutations.defer(operation),
+      (operation) => mutations.deferCommand(operation),
       () => { order.push("accepted-send"); }
     )).toBe(true);
     events.transaction(false);
-    queueOwnedEventFollowup(
-      (operation) => events.after(operation),
-      (delta) => { pending += delta; },
-      () => { order.push("engagement-retry"); }
-    );
+    mutations.queueEventFollowup(() => { order.push("engagement-retry"); });
 
-    expect(pending).toBe(1);
-    await Promise.resolve();
-    await Promise.resolve();
+    expect(mutations.pendingOperationCount).toBe(2);
+    await settleMutationGate(mutations);
     expect(order).toEqual(["accepted-send", "engagement-retry"]);
-    expect(pending).toBe(0);
+    expect(mutations.pendingOperationCount).toBe(0);
   });
 
   it("invalidates engagement followups after a listener changes targets", async () => {
@@ -576,31 +570,25 @@ describe("element inputs", () => {
     const first = {};
     const second = {};
     const order: string[] = [];
-    let pending = 0;
     let epoch = 1;
     let target = first;
     let replayed = false;
     events.transaction(true);
-    expect(mutations.defer(() => {
+    expect(mutations.deferCommand(() => {
       epoch += 1;
       target = second;
       order.push("target-change");
     })).toBe(true);
     events.transaction(false);
-    queueOwnedEventFollowup(
-      (operation) => events.after(operation),
-      (delta) => { pending += delta; },
-      () => {
-        order.push("engagement-retry");
-        replayed = bindingCurrent(1, epoch, first, target);
-      }
-    );
+    mutations.queueEventFollowup(() => {
+      order.push("engagement-retry");
+      replayed = bindingCurrent(1, epoch, first, target);
+    });
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await settleMutationGate(mutations);
     expect(order).toEqual(["target-change", "engagement-retry"]);
     expect(replayed).toBe(false);
-    expect(pending).toBe(0);
+    expect(mutations.pendingOperationCount).toBe(0);
   });
 
   it("retains published-player cleanup authority when post-publication startup fails", async () => {
@@ -702,4 +690,23 @@ function collection(elements: readonly Element[]): HTMLCollection {
     length: elements.length,
     item: (index: number) => elements[index] ?? null
   } as unknown as HTMLCollection;
+}
+
+async function settleMutationGate(
+  gate: ElementEventMutationGate
+): Promise<void> {
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    if (gate.pendingOperationCount === 0) return;
+    await Promise.resolve();
+  }
+  throw new Error("mutation gate did not settle");
+}
+
+function emptyHostOwnership() {
+  return {
+    listenerCount: 0,
+    observerCount: 0,
+    failedListenerReleaseCount: 0,
+    failedObserverReleaseCount: 0
+  } as const;
 }
