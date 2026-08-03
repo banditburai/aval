@@ -15,6 +15,14 @@ const rendition: NormalizedSourceRenditionTarget = {
 };
 
 function invocation(encoding: NormalizedVideoEncoding, bitDepth: 8 | 10 = 8) {
+  return invocationForFrameCount(encoding, 6, bitDepth);
+}
+
+function invocationForFrameCount(
+  encoding: NormalizedVideoEncoding,
+  frameCount: number,
+  bitDepth: 8 | 10 = 8
+) {
   const target = encoding.renditions[0]!;
   const geometry = deriveVideoRenditionGeometry({
     canvasWidth: target.width,
@@ -34,7 +42,7 @@ function invocation(encoding: NormalizedVideoEncoding, bitDepth: 8 | 10 = 8) {
       frameBytes: target.width * target.height * 3 / 2 * (bitDepth === 10 ? 2 : 1)
     },
     startFrame: 3,
-    endFrame: 9,
+    endFrame: 3 + frameCount,
     encoding,
     rendition: target,
     geometry
@@ -186,6 +194,26 @@ describe("codec-major unit encoder argv", () => {
     ]);
     expect(result.arguments).toContain("-x265-params");
     expect(result.arguments.at(-2)).toBe("hevc");
+  });
+
+  it("keeps one-frame H.265 units on the shared Main-profile encoder vector", () => {
+    const result = invocationForFrameCount({
+      codec: "h265",
+      preset: "veryslow",
+      threads: 8,
+      renditions: [{ ...rendition, crf: 30 }]
+    }, 1);
+
+    expectArguments(result.arguments, ["-frames:v", "1"]);
+    expectArguments(result.arguments, [
+      "-g", "2", "-keyint_min", "2", "-sc_threshold", "0"
+    ]);
+    const parameters = result.arguments[result.arguments.indexOf("-x265-params") + 1];
+    const parameterTokens = parameters?.split(":") ?? [];
+    expect(parameterTokens).toContain("keyint=2");
+    expect(parameterTokens).toContain("min-keyint=2");
+    expect(parameterTokens).not.toContain("keyint=1");
+    expect(parameterTokens).not.toContain("min-keyint=1");
   });
 
   it("lowers VP9 constant-quality best-deadline controls and retains IVF only as transport", () => {

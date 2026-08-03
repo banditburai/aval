@@ -58,7 +58,7 @@ input {
   display: block;
   width: min(100%, 90rem);
   height: auto;
-  aspect-ratio: 3840 / 670;
+  aspect-ratio: 3840 / 2160;
 }
 
 .controls {

@@ -3,7 +3,7 @@
   "alpha": "packed",
   "canvas": {
     "width": 3840,
-    "height": 670,
+    "height": 2160,
     "fit": "contain",
     "pixelAspect": [1, 1],
     "colorSpace": "srgb"
@@ -13,7 +13,7 @@
     {
       "id": "lend-borrow",
       "type": "video",
-      "path": "source/lend-borrow-test.mov",
+      "path": "source/lend-borrow-test-2.mov",
       "timing": { "mode": "exact" }
     }
   ],
@@ -23,66 +23,191 @@
       "cpuUsed": 4,
       "threads": 8,
       "renditions": [
-        { "id": "video.1x", "width": 3840, "height": 670, "crf": 40 }
+        { "id": "video.1x", "width": 3840, "height": 2160, "crf": 40 }
       ]
     },
     {
       "codec": "h265",
       "threads": 8,
       "renditions": [
-        { "id": "video.1x", "width": 3840, "height": 670, "crf": 30 }
+        { "id": "video.1x", "width": 3840, "height": 2160, "crf": 30 }
       ]
     }
   ],
   "units": [
     {
-      "id": "idle.body",
+      "id": "idle.12.body",
       "kind": "body",
       "source": "lend-borrow",
-      "range": [0, 36],
-      "playback": "loop",
+      "range": [0, 12],
+      "playback": "finite",
+      "ports": [
+        { "id": "default", "entryFrame": 0, "portalFrames": [11] }
+      ]
+    },
+    {
+      "id": "idle.24.body",
+      "kind": "body",
+      "source": "lend-borrow",
+      "range": [12, 24],
+      "playback": "finite",
+      "ports": [
+        { "id": "default", "entryFrame": 0, "portalFrames": [11] }
+      ]
+    },
+    {
+      "id": "idle.36.body",
+      "kind": "body",
+      "source": "lend-borrow",
+      "range": [24, 36],
+      "playback": "finite",
+      "ports": [
+        { "id": "default", "entryFrame": 0, "portalFrames": [11] }
+      ]
+    },
+    {
+      "id": "active.12.body",
+      "kind": "body",
+      "source": "lend-borrow",
+      "range": [64, 100],
+      "playback": "finite",
       "ports": [
         { "id": "default", "entryFrame": 0, "portalFrames": [35] }
       ]
     },
     {
-      "id": "active.body",
+      "id": "active.24.body",
       "kind": "body",
       "source": "lend-borrow",
-      "range": [36, 69],
+      "range": [100, 136],
       "playback": "finite",
       "ports": [
-        { "id": "default", "entryFrame": 0, "portalFrames": [32] }
+        { "id": "default", "entryFrame": 0, "portalFrames": [35] }
+      ]
+    },
+    {
+      "id": "active.36.body",
+      "kind": "body",
+      "source": "lend-borrow",
+      "range": [36, 64],
+      "playback": "finite",
+      "ports": [
+        { "id": "default", "entryFrame": 0, "portalFrames": [27] }
       ]
     }
   ],
-  "initialState": "idle",
+  "initialState": "idle.12",
   "states": [
-    { "id": "idle", "bodyUnit": "idle.body" },
-    { "id": "active", "bodyUnit": "active.body" }
+    { "id": "idle.12", "bodyUnit": "idle.12.body" },
+    { "id": "idle.24", "bodyUnit": "idle.24.body" },
+    { "id": "idle.36", "bodyUnit": "idle.36.body" },
+    { "id": "active.12", "bodyUnit": "active.12.body" },
+    { "id": "active.24", "bodyUnit": "active.24.body" },
+    { "id": "active.36", "bodyUnit": "active.36.body" }
   ],
   "edges": [
     {
-      "id": "idle.active",
-      "from": "idle",
-      "to": "active",
+      "id": "idle.12.idle.24",
+      "from": "idle.12",
+      "to": "idle.24",
+      "trigger": { "type": "completion" },
       "start": {
-        "type": "portal",
-        "sourcePort": "default",
+        "type": "finish",
+        "targetPort": "default",
+        "maxWaitFrames": 11
+      },
+      "continuity": "exact-authored"
+    },
+    {
+      "id": "idle.24.idle.36",
+      "from": "idle.24",
+      "to": "idle.36",
+      "trigger": { "type": "completion" },
+      "start": {
+        "type": "finish",
+        "targetPort": "default",
+        "maxWaitFrames": 11
+      },
+      "continuity": "exact-authored"
+    },
+    {
+      "id": "idle.36.idle.12",
+      "from": "idle.36",
+      "to": "idle.12",
+      "trigger": { "type": "completion" },
+      "start": {
+        "type": "finish",
+        "targetPort": "default",
+        "maxWaitFrames": 11
+      },
+      "continuity": "exact-authored"
+    },
+    {
+      "id": "idle.12.active.12",
+      "from": "idle.12",
+      "to": "active.12",
+      "start": {
+        "type": "finish",
+        "targetPort": "default",
+        "maxWaitFrames": 11
+      },
+      "continuity": "exact-authored"
+    },
+    {
+      "id": "idle.24.active.24",
+      "from": "idle.24",
+      "to": "active.24",
+      "start": {
+        "type": "finish",
+        "targetPort": "default",
+        "maxWaitFrames": 11
+      },
+      "continuity": "exact-authored"
+    },
+    {
+      "id": "idle.36.active.36",
+      "from": "idle.36",
+      "to": "active.36",
+      "start": {
+        "type": "finish",
+        "targetPort": "default",
+        "maxWaitFrames": 11
+      },
+      "continuity": "exact-authored"
+    },
+    {
+      "id": "active.12.idle.24",
+      "from": "active.12",
+      "to": "idle.24",
+      "trigger": { "type": "completion" },
+      "start": {
+        "type": "finish",
         "targetPort": "default",
         "maxWaitFrames": 35
       },
       "continuity": "exact-authored"
     },
     {
-      "id": "active.idle",
-      "from": "active",
-      "to": "idle",
+      "id": "active.24.idle.36",
+      "from": "active.24",
+      "to": "idle.36",
       "trigger": { "type": "completion" },
       "start": {
         "type": "finish",
         "targetPort": "default",
         "maxWaitFrames": 35
+      },
+      "continuity": "exact-authored"
+    },
+    {
+      "id": "active.36.idle.12",
+      "from": "active.36",
+      "to": "idle.12",
+      "trigger": { "type": "completion" },
+      "start": {
+        "type": "finish",
+        "targetPort": "default",
+        "maxWaitFrames": 27
       },
       "continuity": "exact-authored"
     }

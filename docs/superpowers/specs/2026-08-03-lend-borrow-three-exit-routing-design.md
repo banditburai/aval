@@ -28,13 +28,13 @@ The user's safety labels are one-based display labels. They map to zero-based
 idle frames 11, 23, and 35. Activation windows are therefore `0…11`, `12…23`,
 and `24…35`, without overlap.
 
-The source has a clean `35 → 0` idle seam. The `[64, 100)` clip returns
-smoothly through idle frame 11, and `[100, 136)` returns smoothly through idle
-frame 23. The `[36, 64)` clip has an authored discontinuity at its return and
-contains repeated held frames. The user explicitly approved preserving those
-pixels and returning through idle frame 35 before the loop restarts at frame
-0. The compiler and player must not synthesize, remove, interpolate, or retime
-these frames.
+The source has a clean `35 → 0` idle seam. After an active branch, playback
+continues with the frame after that branch's safety frame: `99 → 12`,
+`135 → 24`, or `63 → 0`. The first two returns are smooth in source-pixel
+analysis. The `[36, 64)` clip has an authored discontinuity at its return and
+contains repeated held frames; the user explicitly approved preserving those
+pixels and returning to the loop anyway. The compiler and player must not
+synthesize, remove, interpolate, or retime these frames.
 
 ## Architecture constraint
 
@@ -74,19 +74,20 @@ the phase waits for that phase's final safety frame. If decoding is not ready
 at the boundary, finite-body runtime policy retains that boundary rather than
 wrapping through another logical loop phase and selecting a later exit.
 
-Each active body is finite and completes through a one-frame resume body that
-restores the authored loop pose before normal idle playback continues:
+Each active body is finite and completes directly into the next idle phase:
 
 ```text
-active.12 → resume.12 [11,12) → idle.24
-active.24 → resume.24 [23,24) → idle.36
-active.36 → resume.36 [35,36) → idle.12
+active.12 [64,100)  → idle.24 [12,24)
+active.24 [100,136) → idle.36 [24,36)
+active.36 [36,64)   → idle.12 [0,12)
 ```
 
-The one-frame resume states are internal graph states, not synthetic video.
-They reuse exact source pixels and make every target entry a valid local frame
-zero under the existing graph contract. The approved `active.36 → resume.36`
-source discontinuity is retained.
+The safety frame has already been displayed before activation, so replaying it
+after the active clip would add an unintended duplicate frame and delay. Direct
+completion also gives route prefetch at least twelve active frames to prepare
+the next idle decoder run. A one-frame intermediate state gives only one tick
+and caused a measured underflow in browser verification. The approved
+`active.36 → idle.12` source discontinuity is retained.
 
 ## React behavior
 
@@ -97,14 +98,12 @@ background color picker. It uses the canonical `useAval` adapter returned by
 The UI groups states as follows:
 
 - `idle.*` states are logical idle states.
-- `active.*`, `resume.*`, a pending active request, or an active transition is
-  logical active/busy behavior. The one-frame resume checkpoint is not an
-  interactive state.
+- `active.*`, a pending active request, or an active transition is logical
+  active/busy behavior.
 - Activate reads the controller's current committed state and requests the
   corresponding `active.*` destination synchronously in the click handler.
 - The button displays `Queued` while waiting for a safety boundary, `Active`
-  during the active and resume bodies, and returns to `Activate` upon the next
-  idle phase.
+  during the active body, and returns to `Activate` upon the next idle phase.
 - The button is disabled while the accepted activation is pending or active.
 
 No raw wall-clock time or `<video>` current time participates in routing.
@@ -124,6 +123,15 @@ Publish only:
 Audio is omitted. The build report must record the normalized defaults and the
 literal FFmpeg invocations.
 
+An initial compile with a valid one-frame graph unit exposed a separate H.265
+compiler bug: using `keyint=1` makes x265 silently switch that unit from Main
+to Main-Intra and emit incompatible VPS/SPS/PPS bytes. H.265 unit encoding must
+therefore retain the exact authored `-frames:v` count while flooring only its
+GOP/keyframe interval to two. Command-generation and real mixed-unit encoding
+regressions cover the one-frame case and verify byte-identical VPS/SPS/PPS.
+The final example no longer needs a one-frame return unit, but the compiler must
+continue to support such units correctly.
+
 ## Verification
 
 The browser regression runs isolated, fresh-page activation scenarios so one
@@ -137,8 +145,8 @@ For every case it verifies:
 3. the selected active unit is exactly `active.12`, `active.24`, or
    `active.36` for that window;
 4. every active local frame is presented in order without `Set` deduplication;
-5. the corresponding resume frame appears, followed by the correct next idle
-   phase and its next frame;
+5. the active clip returns directly to local frames zero and one of the correct
+   next idle phase, without replaying the departure safety frame;
 6. the decoded animation remains transparent over a non-black background;
 7. no console error, page error, fatal playback failure, or underflow delta is
    introduced;
@@ -146,7 +154,7 @@ For every case it verifies:
 9. the button returns to its enabled Activate state.
 
 Pixel comparisons cover each departure seam and return seam. The test treats
-the known `active.36` return discontinuity as an expected source witness: it
+the known `active.36 → idle.12` return discontinuity as an expected source witness: it
 must reproduce the source jump rather than claim it is smooth. Structural
 validation and inspection cover both VP9 and H.265 assets; Chromium playback
 covers VP9 because that is the codec Chromium selects on this host.

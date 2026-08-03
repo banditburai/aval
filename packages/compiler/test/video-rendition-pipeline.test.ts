@@ -183,6 +183,92 @@ describe("codec-typed rendition pipeline", () => {
     40_000
   );
 
+  it.skipIf(!hasEncoder("libx265"))(
+    "keeps one-frame and multi-frame H.265 units on one decoder configuration",
+    async () => {
+      const encoding = encodingFixture("h265");
+      const project: NormalizedSourceProject = {
+        ...projectFixture(encoding, "opaque"),
+        units: [
+          {
+            id: "held.body",
+            kind: "body",
+            source: "render",
+            range: [5, 6],
+            playback: "finite",
+            ports: [{ id: "default", entryFrame: 0, portalFrames: [0] }]
+          },
+          {
+            id: "multi.body",
+            kind: "body",
+            source: "render",
+            range: [0, 5],
+            playback: "finite",
+            ports: [{ id: "default", entryFrame: 0, portalFrames: [4] }]
+          }
+        ],
+        initialState: "multi",
+        states: [
+          { id: "held", bodyUnit: "held.body" },
+          { id: "multi", bodyUnit: "multi.body" }
+        ],
+        edges: [{
+          id: "multi.held",
+          from: "multi",
+          to: "held",
+          trigger: { type: "completion" },
+          start: {
+            type: "finish",
+            targetPort: "default",
+            maxWaitFrames: 4
+          },
+          continuity: "exact-authored"
+        }]
+      };
+      const source = preparedSource();
+      const compiled = await compileVideoEncodingRenditions({
+        project,
+        encoding,
+        layout: "opaque",
+        sources: new Map([[source.id, source]]),
+        executable: "ffmpeg",
+        timeoutMs: 30_000
+      });
+
+      expect(compiled.renditions[0]?.codec).toMatch(/^hvc1\.1\./u);
+      expect(compiled.renditions[0]?.units.map(({ id, chunks }) => ({
+        chunks: chunks.length,
+        id
+      }))).toEqual([
+        { chunks: 1, id: "held.body" },
+        { chunks: 5, id: "multi.body" }
+      ]);
+      const heldEncode = compiled.invocations.find(({ operation }) =>
+        operation === "h265:video.main:held.body:encode"
+      );
+      expect(heldEncode?.arguments).toEqual(expect.arrayContaining([
+        "-frames:v", "1",
+        "-g", "2",
+        "-keyint_min", "2"
+      ]));
+      const parameterIndex = heldEncode?.arguments.indexOf("-x265-params") ?? -1;
+      const parameterTokens = heldEncode?.arguments[parameterIndex + 1]?.split(":") ?? [];
+      expect(parameterTokens).toContain("keyint=2");
+      expect(parameterTokens).toContain("min-keyint=2");
+
+      const artifact = compileProjectEncoding({
+        project,
+        encoding,
+        layout: "opaque",
+        renditions: compiled.renditions
+      });
+      const assetPath = join(directory, "h265-mixed-unit-lengths.avl");
+      await writeFile(assetPath, artifact.assetBytes);
+      await expect(validateAssetFile(assetPath)).resolves.toBeDefined();
+    },
+    40_000
+  );
+
   it.skipIf(!hasEncoder("libx264"))(
     "keeps opaque rendition compilation on wire 1.1 without a witness pass",
     async () => {

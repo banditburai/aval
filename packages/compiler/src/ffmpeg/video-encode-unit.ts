@@ -160,6 +160,10 @@ export function createEncodeVideoUnitInvocation(
   input: Readonly<EncodeVideoUnitInput>
 ): Readonly<EncodeVideoUnitInvocation> {
   const frameCount = validate(input);
+  const keyframeInterval = closedUnitKeyframeInterval(
+    input.encoding.codec,
+    frameCount
+  );
   const sourcePixelFormat = input.source.bitDepth === 10
     ? "yuv420p10le"
     : "yuv420p";
@@ -188,12 +192,12 @@ export function createEncodeVideoUnitInvocation(
     "-color_primaries", "bt709",
     "-color_trc", "bt709",
     "-colorspace", "bt709",
-    "-g", String(frameCount),
-    "-keyint_min", String(frameCount),
+    "-g", String(keyframeInterval),
+    "-keyint_min", String(keyframeInterval),
     "-sc_threshold", "0",
     ...codecArguments(
       input.encoding.codec,
-      frameCount,
+      keyframeInterval,
       input.geometry,
       input.source.frameRate
     ),
@@ -207,6 +211,13 @@ export function createEncodeVideoUnitInvocation(
     cwd: dirname(input.source.path),
     stdinFile: Object.freeze({ path: input.source.path, offset, length })
   });
+}
+
+function closedUnitKeyframeInterval(codec: VideoCodec, frameCount: number): number {
+  // A keyint of one makes x265 select Main-Intra and emit parameter sets that
+  // cannot share one rendition with ordinary Main-profile graph units. The
+  // unit still contains exactly one random-access picture when keyint is two.
+  return codec === "h265" ? Math.max(frameCount, 2) : frameCount;
 }
 
 function validate(input: Readonly<EncodeVideoUnitInput>): number {
