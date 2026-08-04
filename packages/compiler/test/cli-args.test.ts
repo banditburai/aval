@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseCliArguments } from "../src/cli-args.js";
+import { HELP_TEXT } from "../src/cli.js";
 import { CompilerError } from "../src/diagnostics.js";
 
 describe("CLI argument grammar", () => {
@@ -276,9 +277,6 @@ describe("CLI argument grammar", () => {
     expect(parseCliArguments(["unpack", "a.avl", "--out", "dir"])).toEqual({
       command: "unpack", input: "a.avl", output: "dir", json: false
     });
-    expect(parseCliArguments(["init", "starter"])).toEqual({
-      command: "init", directory: "starter", json: false
-    });
     expect(parseCliArguments([
       "dev", "motion.json", "--out", "x", "--media-timeout-ms", "900000"
     ])).toEqual({
@@ -291,6 +289,12 @@ describe("CLI argument grammar", () => {
       open: false,
       json: false
     });
+  });
+
+  it("rejects and does not advertise the removed init command", () => {
+    expect(() => parseCliArguments(["init", "starter"]))
+      .toThrowError(/Unknown command "init"/u);
+    expect(HELP_TEXT).not.toContain(["avl", "init"].join(" "));
   });
 });
 

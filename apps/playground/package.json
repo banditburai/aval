@@ -11,7 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@pixel-point/aval-element": "1.0.0",
-    "@pixel-point/aval-format": "1.0.0"
+    "@pixel-point/aval-element": "1.0.1",
+    "@pixel-point/aval-format": "1.0.1"
   }
 }

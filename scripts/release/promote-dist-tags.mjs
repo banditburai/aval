@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { readStableRegistryState, runRegistryMutation } from "./registry-client.mjs";
 import { reconcileRegistryMutation } from "./registry-reconciler.mjs";
 import { loadBoundLedger, loadPublicationAuthorization, loadRegistryConsumerEvidence, publicationLedgerEnvelope, terminalLedgerStatus, validPublicationApproval, writePublicationLedger } from "./publication-support.mjs";
+import { RELEASE_VERSION } from "./release-set-model.mjs";
 
 const args = parse(process.argv.slice(2));
 if (args.from !== "next" || args.to !== "latest") throw new Error("promotion must be next -> latest");
@@ -46,10 +47,10 @@ let terminalError = null;
 for (const archive of authorization.releaseSet.packages) {
   const published = sourceExact.get(archive.name);
   if (published === undefined || published.tarballSha256 !== archive.tarballSha256 || published.registryIntegrity !== archive.registryIntegrity) throw new Error(`source ledger package bytes differ from release: ${archive.name}`);
-  const before = readStableRegistryState(archive.name, "1.0.0", registryOptions);
+  const before = readStableRegistryState(archive.name, RELEASE_VERSION, registryOptions);
   const planned = certification.planExactTag({
     packageName: archive.name,
-    version: "1.0.0",
+    version: RELEASE_VERSION,
     tarballSha256: archive.tarballSha256,
     registryIntegrity: archive.registryIntegrity,
     sequence: operations.length + 1,
@@ -57,15 +58,15 @@ for (const archive of authorization.releaseSet.packages) {
     approvalId: args.approval ?? "dry-run-no-registry-mutation",
     action: "tag",
     desiredTag: "latest",
-    targetVersion: "1.0.0",
-    requiredSourceTag: { tag: "next", version: "1.0.0" },
+    targetVersion: RELEASE_VERSION,
+    requiredSourceTag: { tag: "next", version: RELEASE_VERSION },
     registry: before
   });
   if (!execute || planned.result === "already-exact") { operations.push(planned); continue; }
   const reconciled = reconcileRegistryMutation({
     planned,
-    mutate: () => runRegistryMutation(["dist-tag", "add", `${archive.name}@1.0.0`, "latest"], registryOptions),
-    readState: () => readStableRegistryState(archive.name, "1.0.0", registryOptions),
+    mutate: () => runRegistryMutation(["dist-tag", "add", `${archive.name}@${RELEASE_VERSION}`, "latest"], registryOptions),
+    readState: () => readStableRegistryState(archive.name, RELEASE_VERSION, registryOptions),
     certification
   });
   operations.push(reconciled.operation);
@@ -89,13 +90,13 @@ process.stdout.write(`${JSON.stringify({ status: "passed", mode: ledger.mode, ou
 
 function compensateLatest({ operations, registryOptions, timestamp, terminalError, certification }) {
   let error = terminalError;
-  const candidates = operations.filter((operation) => operation.tag === "latest" && operation.before !== "1.0.0" && (operation.result === "applied" || operation.result === "ambiguous")).reverse();
+  const candidates = operations.filter((operation) => operation.tag === "latest" && operation.before !== RELEASE_VERSION && (operation.result === "applied" || operation.result === "ambiguous")).reverse();
   for (const completed of candidates) {
     try {
-      const current = readStableRegistryState(completed.packageName, "1.0.0", registryOptions);
+      const current = readStableRegistryState(completed.packageName, RELEASE_VERSION, registryOptions);
       const compensation = certification.planTagCompensation({
         packageName: completed.packageName,
-        version: "1.0.0",
+        version: RELEASE_VERSION,
         tarballSha256: completed.tarballSha256,
         registryIntegrity: completed.registryIntegrity,
         sequence: operations.length + 1,
@@ -103,7 +104,7 @@ function compensateLatest({ operations, registryOptions, timestamp, terminalErro
         approvalId: `${completed.approvalId}-compensation`,
         desiredTag: "latest",
         targetVersion: completed.before,
-        requiredCurrentTag: "1.0.0",
+        requiredCurrentTag: RELEASE_VERSION,
         registry: current
       });
       if (compensation.result === "conflict" || compensation.result === "already-exact") {
@@ -116,7 +117,7 @@ function compensateLatest({ operations, registryOptions, timestamp, terminalErro
         mutate: () => completed.before === null
           ? runRegistryMutation(["dist-tag", "rm", completed.packageName, "latest"], registryOptions)
           : runRegistryMutation(["dist-tag", "add", `${completed.packageName}@${completed.before}`, "latest"], registryOptions),
-        readState: () => readStableRegistryState(completed.packageName, "1.0.0", registryOptions),
+        readState: () => readStableRegistryState(completed.packageName, RELEASE_VERSION, registryOptions),
         certification
       });
       operations.push(reconciled.operation);

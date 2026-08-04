@@ -5,18 +5,13 @@ graph and a codec-major encoding set. Compilation publishes a bundle
 directory containing one `.avl` per requested codec and a canonical
 `build.json` report.
 
-Install the compiler locally before invoking its `avl` executable:
+Run the scoped CLI directly without adding the compiler to the project:
 
 ```sh
-npm install --save-dev @pixel-point/aval-compiler@1.0.0
-npx avl init my-motion
+npx @pixel-point/aval-compiler compile motion.json --out dist/motion
 ```
 
-## Compile a project
-
-```sh
-npx avl compile motion.json --out dist/motion
-```
+## Compile output
 
 For a project containing all four codecs, the output is:
 
@@ -127,7 +122,7 @@ Direct input requires one explicit codec and produces the same one-codec bundle
 shape through the same compiler pipeline:
 
 ```sh
-npx avl compile render.mov \
+npx @pixel-point/aval-compiler compile render.mov \
   --codec av1 \
   --loop 0:120 \
   --crf 15 \

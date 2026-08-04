@@ -27,7 +27,7 @@ async function main() {
     fixture: "aval-v1-four-codec-source",
     license: await descriptor("fixtures/compiler/v1/source/ASSET-LICENSE.md"),
     project: await descriptor("fixtures/compiler/v1/source/motion.json"),
-    sourceGenerator: "@pixel-point/aval-compiler init 1.0",
+    sourceGenerator: "repository fixture 1.0",
     sourceProvenance: {
       provenancePath: "fixtures/starter/v1-idle-hover/provenance.json",
       provenanceSha256: createHash("sha256")

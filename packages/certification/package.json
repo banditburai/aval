@@ -1,6 +1,6 @@
 {
   "name": "@pixel-point/aval-certification",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "exports": {
@@ -15,6 +15,6 @@
     "test": "cd ../.. && vitest run --config vitest.m9.config.ts packages/certification/test"
   },
   "dependencies": {
-    "@pixel-point/aval-format": "1.0.0"
+    "@pixel-point/aval-format": "1.0.1"
   }
 }

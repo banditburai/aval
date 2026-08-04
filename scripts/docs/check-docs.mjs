@@ -116,23 +116,15 @@ for (const path of publicBoundaryFiles) {
   if (hasMissingInteractiveRecovery(text)) failures.push(`${path}: consumer alternate UI must recover only at interactive readiness`);
   if (hasStaticReadyInRenderedSet(text)) failures.push(`${path}: static policy must not be classified as rendered playback`);
 }
-const expectedInstallSequence = [
-  "npm install @pixel-point/aval-element@1.0.0",
-  "npm install --save-dev @pixel-point/aval-compiler@1.0.0",
-  "npx avl init my-motion",
-  "cd my-motion",
-  "npm install",
-  "npm run dev"
-].join("\n");
-for (const path of ["README.md", "docs/quick-start.md"]) {
+const scopedCompileCommand =
+  "npx @pixel-point/aval-compiler compile motion.json --out dist/motion";
+for (const path of ["README.md", "docs/quick-start.md", "packages/compiler/README.md"]) {
   const text = await readFile(path, "utf8");
-  if (!text.includes(expectedInstallSequence)) failures.push(`${path}: exact public install sequence is missing`);
-  if (!text.includes("resolves the `avl` executable from the compiler package")) failures.push(`${path}: npx avl local-binary context is missing`);
+  if (!text.includes(scopedCompileCommand)) failures.push(`${path}: scoped compiler command is missing`);
+  if (text.includes(["avl", "init"].join(" "))) failures.push(`${path}: removed compiler init command is documented`);
 }
 const elementReadme = await readFile("packages/element/README.md", "utf8");
 if (!elementReadme.includes("npm install @pixel-point/aval-element@1.0.0")) failures.push("packages/element/README.md: exact public install is missing");
-const compilerReadme = await readFile("packages/compiler/README.md", "utf8");
-if (!compilerReadme.includes("npm install --save-dev @pixel-point/aval-compiler@1.0.0\nnpx avl init my-motion")) failures.push("packages/compiler/README.md: local compiler install sequence is missing");
 const hosting = await readFile("docs/element/hosting-cors-csp-integrity.md", "utf8");
 if (hosting.includes(["unsafe", "inline"].join("-"))) failures.push("docs/element/hosting-cors-csp-integrity.md: CSP must not require inline authority");
 if (!hosting.includes("style-src 'self'") || !hosting.includes("worker-src 'self'")) failures.push("docs/element/hosting-cors-csp-integrity.md: strict self-hosted CSP baseline is incomplete");
@@ -324,13 +316,10 @@ if (/<(?:script|style)[^>]*>[^<]/u.test(plainHtml)) failures.push(`${plainDirect
 if (!plainReadme.includes("illustrative") || !plainReadme.includes("placeholders")) failures.push(`${plainDirectory}: absent assets must be labeled illustrative placeholders`);
 const starterHtml = await readFile("fixtures/starter/v1-idle-hover/index.html", "utf8");
 const starterSource = await readFile("fixtures/starter/v1-idle-hover/main.js", "utf8");
-if (/<(?:script|style)[^>]*>[^<]/u.test(starterHtml)) failures.push("generated starter must not require inline script or style authority");
-if (!starterSource.includes('"@pixel-point/aval-element/auto"')) failures.push("generated starter must use the public auto entry");
-if (hasAvalFallbackSlot(starterHtml)) failures.push("generated starter must keep alternate UI outside aval-player");
-for (const path of [
-  "packages/compiler/src/commands/init.ts",
-  "packages/compiler/src/commands/dev-ui-assets.ts"
-]) {
+if (/<(?:script|style)[^>]*>[^<]/u.test(starterHtml)) failures.push("packed dev fixture must not require inline script or style authority");
+if (!starterSource.includes('"@pixel-point/aval-element/auto"')) failures.push("packed dev fixture must use the public auto entry");
+if (hasAvalFallbackSlot(starterHtml)) failures.push("packed dev fixture must keep alternate UI outside aval-player");
+for (const path of ["packages/compiler/src/commands/dev-ui-assets.ts"]) {
   const source = await readFile(path, "utf8");
   if (hasAvalFallbackSlot(source)) {
     failures.push(`${path}: generated UI must not give AVAL ownership of alternate content`);

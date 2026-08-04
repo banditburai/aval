@@ -1,8 +1,12 @@
 {
   "name": "@pixel-point/aval-format",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Canonical parser, validator, and types for AVAL assets.",
-  "keywords": ["animation", "binary-format", "motion"],
+  "keywords": [
+    "animation",
+    "binary-format",
+    "motion"
+  ],
   "private": false,
   "type": "module",
   "sideEffects": false,
@@ -12,14 +16,30 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "license": "MIT",
-  "engines": { "node": ">=22.12.0" },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pixel-point/aval.git",
+    "directory": "packages/format"
+  },
+  "homepage": "https://github.com/pixel-point/aval",
+  "bugs": {
+    "url": "https://github.com/pixel-point/aval/issues"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
-    "@pixel-point/aval-graph": "1.0.0"
+    "@pixel-point/aval-graph": "1.0.1"
   }
 }

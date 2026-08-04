@@ -122,11 +122,6 @@ export interface UnpackCliArguments extends CliBaseArguments {
   readonly output: string;
 }
 
-export interface InitCliArguments extends CliBaseArguments {
-  readonly command: "init";
-  readonly directory: string;
-}
-
 export interface DevCliArguments extends CliBaseArguments {
   readonly command: "dev";
   readonly project: string;
@@ -148,7 +143,6 @@ export type CliArguments =
   | InspectCliArguments
   | ValidateCliArguments
   | UnpackCliArguments
-  | InitCliArguments
   | DevCliArguments
   | HelpCliArguments;
 
@@ -198,7 +192,6 @@ export function parseCliArguments(argv: readonly string[]): CliArguments {
     command !== "inspect" &&
     command !== "validate" &&
     command !== "unpack" &&
-    command !== "init" &&
     command !== "dev"
   ) {
     usage(`Unknown command ${safeToken(command)}`);
@@ -216,8 +209,6 @@ export function parseCliArguments(argv: readonly string[]): CliArguments {
       return parseOneInput(command, raw);
     case "unpack":
       return parseUnpack(raw);
-    case "init":
-      return parseInit(raw);
     case "dev":
       return parseDev(raw);
   }
@@ -534,15 +525,6 @@ function parseUnpack(raw: RawCommand): UnpackCliArguments {
     command: "unpack",
     input: onePositional(raw, "unpack"),
     output: pathToken(requiredValue(raw, "--out"), "--out"),
-    json: raw.booleans.has("--json")
-  });
-}
-
-function parseInit(raw: RawCommand): InitCliArguments {
-  allowFlags(raw, ["--json"]);
-  return Object.freeze({
-    command: "init",
-    directory: onePositional(raw, "init"),
     json: raw.booleans.has("--json")
   });
 }

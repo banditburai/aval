@@ -78,7 +78,6 @@ export type {
   CompileCliArguments,
   DevCliArguments,
   HelpCliArguments,
-  InitCliArguments,
   InspectCliArguments,
   UnpackCliArguments,
   ValidateCliArguments

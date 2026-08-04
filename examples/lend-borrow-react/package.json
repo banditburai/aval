@@ -11,13 +11,13 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@pixel-point/aval-react": "1.0.0",
+    "@pixel-point/aval-react": "1.0.1",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",
-    "@pixel-point/aval-compiler": "1.0.0",
+    "@pixel-point/aval-compiler": "1.0.1",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "typescript": "7.0.2",

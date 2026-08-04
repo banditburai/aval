@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { loadVerifiedReleaseSet, releaseSetSummary } from "./release-set.mjs";
+import { loadVerifiedReleaseSet, RELEASE_VERSION, releaseSetSummary } from "./release-set.mjs";
 
 const args = parse(process.argv.slice(2));
-const directory = resolve(args.packages ?? "artifacts/1.0.0/packages");
-const output = resolve(args.output ?? "artifacts/1.0.0/package-inspection.json");
-const indexPath = resolve(args.index ?? "artifacts/1.0.0/package-index.json");
+const directory = resolve(args.packages ?? `artifacts/${RELEASE_VERSION}/packages`);
+const output = resolve(args.output ?? `artifacts/${RELEASE_VERSION}/package-inspection.json`);
+const indexPath = resolve(args.index ?? `artifacts/${RELEASE_VERSION}/package-index.json`);
 const [policy, packageIndex] = await Promise.all([
   readFile("config/release/release-policy.json", "utf8").then(JSON.parse),
   readFile(indexPath, "utf8").then(JSON.parse)

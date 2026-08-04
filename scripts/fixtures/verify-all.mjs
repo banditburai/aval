@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { lstat, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { lstat, readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CERTIFICATION_FIXTURE_DIRECTORY } from "../certification/certification-fixture-authority.mjs";
@@ -36,13 +35,11 @@ async function main() {
   for (const script of generatorChecks) runGeneratorCheck(script);
   const formatModule = await import(join(root, "packages/format/dist/index.js"));
   const certificationBundle = await verifyCertificationBundle(formatModule);
-  const starter = await verifyStarter();
   process.stdout.write(`${JSON.stringify({
     status: "passed",
     provenance,
     completeAssets: certificationBundle.assets.map(({ path }) => path),
     certificationBundle,
-    starter,
     generatorChecks
   }, null, 2)}\n`);
 }
@@ -172,59 +169,6 @@ async function requireByteEqual(authorityPath, consumerPath) {
   if (Buffer.compare(authority, consumer) !== 0) {
     throw new Error(`${consumerPath} drifted from ${authorityPath}`);
   }
-}
-
-async function verifyStarter() {
-  const temporary = await mkdtemp(join(tmpdir(), "aval-starter-drift-"));
-  try {
-    const { runInitCommand } = await import(
-      join(root, "packages/compiler/dist/commands/init.js")
-    );
-    const generated = await runInitCommand({
-      command: "init",
-      directory: "starter",
-      json: false
-    }, temporary);
-    const committed = join(root, "fixtures/starter/v1-idle-hover");
-    const [actualEntries, expectedEntries] = await Promise.all([
-      collectTree(generated.directory),
-      collectTree(committed)
-    ]);
-    if (JSON.stringify(actualEntries) !== JSON.stringify(expectedEntries)) {
-      throw new Error("generated v1 starter tree drifted from the committed fixture");
-    }
-    for (const entry of expectedEntries) {
-      if (entry.endsWith("/")) continue;
-      const [actual, expected] = await Promise.all([
-        readFile(join(generated.directory, entry)),
-        readFile(join(committed, entry))
-      ]);
-      if (Buffer.compare(actual, expected) !== 0) {
-        throw new Error(`generated v1 starter byte drift: ${entry}`);
-      }
-    }
-    return { path: "fixtures/starter/v1-idle-hover", files: generated.files.length };
-  } finally {
-    await rm(temporary, { recursive: true, force: true });
-  }
-}
-
-async function collectTree(directory, prefix = "") {
-  const result = [];
-  const entries = await readdir(directory, { withFileTypes: true });
-  entries.sort((left, right) => left.name.localeCompare(right.name));
-  for (const entry of entries) {
-    const declared = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
-    if (entry.isDirectory()) {
-      result.push(`${declared}/`);
-      result.push(...await collectTree(join(directory, entry.name), declared));
-    } else if (entry.isFile()) {
-      result.push(declared);
-    } else {
-      throw new Error(`fixture tree contains unsupported entry: ${declared}`);
-    }
-  }
-  return result;
 }
 
 main().catch((error) => {

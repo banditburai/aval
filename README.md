@@ -28,28 +28,18 @@ application boundary, and handle the rejected `prepare()` promise when calling
 it directly. Branch on `failure.code`; do not parse the error message. The
 browser-integration example below demonstrates this required boundary.
 
-## Five-minute start
+## Compile an AVAL project
+
+Given an existing `motion.json`, compile it directly. No initialization or
+local compiler installation is required:
 
 ```sh
-npm install @pixel-point/aval-element@1.0.0
-npm install --save-dev @pixel-point/aval-compiler@1.0.0
-npx avl init my-motion
-cd my-motion
-npm install
-npm run dev
+npx @pixel-point/aval-compiler compile motion.json --out dist/motion
 ```
 
-Here `npx avl` resolves the `avl` executable from the compiler package
-installed on the preceding line. The generated starter contains its RGBA
-frames, project 1.0 file, four codec encoding policies, consumer-owned error
-handling, and watch workflow.
-
-For a normal build, the compiler publishes a directory rather than a single
-output file:
-
-```sh
-npx avl compile motion.json --out dist/motion
-```
+Here npx fetches the scoped compiler into npm's cache and automatically runs its
+sole `avl` executable; it does not add the compiler to the current project. The
+compiler publishes a directory rather than a single output file:
 
 ```text
 dist/motion/
@@ -206,4 +196,5 @@ reveals alternate application content.
 - [Performance and budgets](docs/performance-and-budgets.md)
 - [Browser support](docs/browser-support.md)
 - [Versioning](docs/versioning.md)
+- [Publishing synchronized npm packages](docs/releases/publication-runbook.md)
 - [Security policy](SECURITY.md)

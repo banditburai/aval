@@ -1,10 +1,10 @@
-# AVAL idle/hover starter
+# AVAL idle/hover packed-dev fixture
 
 The state names (`idle` and `engaged`) and event names
 (`control.engage` and `control.release`) are ordinary author data. The
 runtime does not contain a special hover state.
 
-Build the four-codec AV1, VP9, H.265, and H.264 bundle, then open the starter page:
+Build the four-codec AV1, VP9, H.265, and H.264 bundle, then open the fixture page:
 
 ```sh
 npm install
@@ -22,8 +22,8 @@ that report onto the literal `<source>` children. Each child keeps its required
 `npm run dev` runs the compiler's watch/browser workflow. The included
 `index.html` is the package-aware Vite entry used by `npm run preview`. It
 demonstrates a native button as the semantic interaction target and a light-DOM
-alternate image that the starter itself reveals after a fatal playback error.
+alternate image that the fixture itself reveals after a fatal playback error.
 
-The generated RGBA frames are CC0-1.0 and their exact provenance is recorded
+The included RGBA frames are CC0-1.0 and their exact provenance is recorded
 in `provenance.json`. No upload, account, framework, or remote asset is
 required.

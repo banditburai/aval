@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
 
-import { releasePackageDirectory } from "./release-set-model.mjs";
+import { RELEASE_VERSION, releasePackageDirectory } from "./release-set-model.mjs";
 
 const config = JSON.parse(await readFile("config/release/api-classification.json", "utf8"));
 const change = JSON.parse(await readFile("config/release/api-changes.json", "utf8"));
 const failures = [];
 if (
-  change.releaseVersion !== "1.0.0" ||
+  change.releaseVersion !== RELEASE_VERSION ||
   change.changeKind !== "technical-preview-reset" ||
   config.defaultClassification !== "experimental"
 ) failures.push("API change classification must identify the technical-preview reset");

@@ -1,1 +1,18 @@
-{"dependencies":{"@pixel-point/aval-element":"1.0.0"},"devDependencies":{"@pixel-point/aval-compiler":"1.0.0","vite":"8.1.4"},"name":"aval-idle-hover-starter","private":true,"scripts":{"build":"avl compile motion.json --out motion --force","dev":"avl dev motion.json --out motion --force","preview":"vite --host 127.0.0.1","validate":"avl validate motion/av1.avl && avl validate motion/vp9.avl && avl validate motion/h265.avl && avl validate motion/h264.avl"},"type":"module"}
+{
+  "dependencies": {
+    "@pixel-point/aval-element": "1.0.1"
+  },
+  "devDependencies": {
+    "@pixel-point/aval-compiler": "1.0.1",
+    "vite": "8.1.4"
+  },
+  "name": "aval-idle-hover-starter",
+  "private": true,
+  "scripts": {
+    "build": "avl compile motion.json --out motion --force",
+    "dev": "avl dev motion.json --out motion --force",
+    "preview": "vite --host 127.0.0.1",
+    "validate": "avl validate motion/av1.avl && avl validate motion/vp9.avl && avl validate motion/h265.avl && avl validate motion/h264.avl"
+  },
+  "type": "module"
+}

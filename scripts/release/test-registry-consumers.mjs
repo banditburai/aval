@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 
 import { readStableRegistryState } from "./registry-client.mjs";
 import { loadPublicationAuthorization } from "./publication-support.mjs";
+import { RELEASE_VERSION } from "./release-set-model.mjs";
 import { verifyRegistryReleaseSet } from "./verify-registry.mjs";
 
 const args = parse(process.argv.slice(2));
@@ -28,7 +29,7 @@ verifyRegistryReleaseSet({
 });
 const temporary = await mkdtemp(join(tmpdir(), "aval-registry-consumers-"));
 try {
-  const exact = authorization.releaseSet.order.map((name) => `${name}@1.0.0`);
+  const exact = authorization.releaseSet.order.map((name) => `${name}@${RELEASE_VERSION}`);
   for (const fixture of ["node-esm", "typescript-nodenext", "typescript-bundler", "browser-vite"]) {
     const target = join(temporary, fixture);
     await cp(resolve("tests/consumers", fixture), target, { recursive: true });

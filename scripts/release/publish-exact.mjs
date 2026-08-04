@@ -5,6 +5,7 @@ import { readStableRegistryState, runRegistryMutation } from "./registry-client.
 import { reconcileRegistryMutation } from "./registry-reconciler.mjs";
 import { stageAuthorizedReleaseSet, verifyStagedArchive } from "./release-authorization.mjs";
 import { loadPublicationAuthorization, publicationLedgerEnvelope, terminalLedgerStatus, validPublicationApproval, writePublicationLedger } from "./publication-support.mjs";
+import { RELEASE_VERSION } from "./release-set-model.mjs";
 
 const args = parse(process.argv.slice(2));
 if ((args.tag ?? "next") !== "next") throw new Error("exact publication may initially use only the next tag");
@@ -32,11 +33,11 @@ let terminalError = null;
 try {
   for (const archive of staged.packages) {
     await verifyStagedArchive(archive);
-    const before = readStableRegistryState(archive.name, "1.0.0", registryOptions);
+    const before = readStableRegistryState(archive.name, RELEASE_VERSION, registryOptions);
     const handoffApproval = execute ? args["tag-approval"] ?? "missing-tag-authorization" : "dry-run-no-registry-mutation";
     const planned = certification.planExactPublication({
       packageName: archive.name,
-      version: "1.0.0",
+      version: RELEASE_VERSION,
       tarballSha256: archive.tarballSha256,
       registryIntegrity: archive.registryIntegrity,
       desiredTag: "next",
@@ -51,15 +52,15 @@ try {
     }
     if (planned.action === "tag" && (!validPublicationApproval(args["tag-approval"]) || args["tag-approval"] === args.approval || args["execute-tag-handoff"] !== "true")) {
       operations.push(certification.failPublicationOperation(planned, before));
-      terminalError = new Error(`${archive.name}@1.0.0 exists exactly; protected short-lived dist-tag approval is required`);
+      terminalError = new Error(`${archive.name}@${RELEASE_VERSION} exists exactly; protected short-lived dist-tag approval is required`);
       break;
     }
     const reconciled = reconcileRegistryMutation({
       planned,
       mutate: () => planned.action === "publish"
         ? runRegistryMutation(["publish", archive.path, "--tag", "next", "--provenance", "--access", "public", "--ignore-scripts"], registryOptions)
-        : runRegistryMutation(["dist-tag", "add", `${archive.name}@1.0.0`, "next"], registryOptions),
-      readState: () => readStableRegistryState(archive.name, "1.0.0", registryOptions),
+        : runRegistryMutation(["dist-tag", "add", `${archive.name}@${RELEASE_VERSION}`, "next"], registryOptions),
+      readState: () => readStableRegistryState(archive.name, RELEASE_VERSION, registryOptions),
       certification
     });
     operations.push(reconciled.operation);
@@ -87,20 +88,20 @@ try {
 async function cleanupPartialNext({ operations, staged, registryOptions, timestamp, terminalError, certification }) {
   const archives = new Map(staged.packages.map((entry) => [entry.name, entry]));
   let error = terminalError;
-  const candidates = operations.filter((operation) => operation.tag === "next" && operation.before !== "1.0.0" && (operation.result === "applied" || operation.result === "ambiguous")).reverse();
+  const candidates = operations.filter((operation) => operation.tag === "next" && operation.before !== RELEASE_VERSION && (operation.result === "applied" || operation.result === "ambiguous")).reverse();
   for (const completed of candidates) {
     const archive = archives.get(completed.packageName);
     if (archive === undefined) continue;
     try {
-      const current = readStableRegistryState(completed.packageName, "1.0.0", registryOptions);
+      const current = readStableRegistryState(completed.packageName, RELEASE_VERSION, registryOptions);
       const compensation = certification.planTagCompensation({
         packageName: completed.packageName,
-        version: "1.0.0",
+        version: RELEASE_VERSION,
         tarballSha256: completed.tarballSha256,
         registryIntegrity: completed.registryIntegrity,
         desiredTag: "next",
         targetVersion: completed.before,
-        requiredCurrentTag: "1.0.0",
+        requiredCurrentTag: RELEASE_VERSION,
         sequence: operations.length + 1,
         timestamp,
         approvalId: `${completed.approvalId}-cleanup-next`,
@@ -116,7 +117,7 @@ async function cleanupPartialNext({ operations, staged, registryOptions, timesta
         mutate: () => completed.before === null
           ? runRegistryMutation(["dist-tag", "rm", completed.packageName, "next"], registryOptions)
           : runRegistryMutation(["dist-tag", "add", `${completed.packageName}@${completed.before}`, "next"], registryOptions),
-        readState: () => readStableRegistryState(completed.packageName, "1.0.0", registryOptions),
+        readState: () => readStableRegistryState(completed.packageName, RELEASE_VERSION, registryOptions),
         certification
       });
       operations.push(reconciled.operation);

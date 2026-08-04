@@ -25,7 +25,6 @@ import {
   startDevCommand,
   type DevCommandDependencies
 } from "./commands/dev.js";
-import { runInitCommand } from "./commands/init.js";
 import { openDevServer, startDevServer } from "./commands/dev-server.js";
 import { runInspectCommand } from "./commands/inspect.js";
 import { runUnpackCommand } from "./commands/unpack.js";
@@ -109,16 +108,6 @@ export async function runCli(
           arguments_.json,
           result,
           `Unpacked ${safe(result.source)} to ${safe(result.outputDirectory)} (${count(result.chunks, "chunk")}, ${count(result.files.length, "file")})`
-        );
-        return 0;
-      }
-      case "init": {
-        const result = await runInitCommand(arguments_, cwd);
-        outputResult(
-          io,
-          arguments_.json,
-          result,
-          `Created ${safe(result.project)} with ${String(result.files.length)} generated files`
         );
         return 0;
       }
@@ -247,7 +236,6 @@ export const HELP_TEXT = `Usage:
   avl inspect <asset.avl> [--json]
   avl validate <asset.avl> [--json]
   avl unpack <asset.avl> --out <empty-directory> [--json]
-  avl init <directory> [--json]
   avl dev <project.json> --out <bundle-directory> [--media-timeout-ms <integer>] [--port <0-65535>] [--open] [--force] [--json]
 
 Direct encoding options:

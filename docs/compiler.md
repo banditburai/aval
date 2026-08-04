@@ -1,13 +1,12 @@
 # Compiler
 
-The CLI supports `init`, `compile`, `dev`, `inspect`, `validate`, and `unpack`.
+The CLI supports `compile`, `dev`, `inspect`, `validate`, and `unpack`.
 Project schema `1.0` produces one wire-format `1.1` file per requested codec.
 
 ```sh
-npx avl init my-motion
-npx avl compile my-motion/motion.json --out dist/my-motion
-npx avl inspect dist/my-motion/av1.avl
-npx avl validate dist/my-motion/av1.avl
+npx @pixel-point/aval-compiler compile motion.json --out dist/motion
+npx @pixel-point/aval-compiler inspect dist/motion/av1.avl
+npx @pixel-point/aval-compiler validate dist/motion/av1.avl
 ```
 
 Inputs are strict JSON projects and author-sized video or PNG sequences. The

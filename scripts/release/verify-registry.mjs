@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { readStableRegistryState } from "./registry-client.mjs";
 import { loadPublicationAuthorization } from "./publication-support.mjs";
-import { RELEASE_PACKAGE_NAMES } from "./release-set-model.mjs";
+import { RELEASE_PACKAGE_NAMES, RELEASE_VERSION } from "./release-set-model.mjs";
 
 export function verifyRegistryReleaseSet({ releaseSet, tag, readState }) {
   if (tag !== "next" && tag !== "latest") throw new Error("registry verification tag must be next or latest");
@@ -12,11 +12,11 @@ export function verifyRegistryReleaseSet({ releaseSet, tag, readState }) {
   if (releaseSet.packages.some((archive, index) => archive?.name !== RELEASE_PACKAGE_NAMES[index] || !isCanonicalIntegrity(archive.registryIntegrity))) throw new Error("registry verification release-set identity/order is invalid");
   const results = [];
   for (const archive of releaseSet.packages) {
-    const state = readState(archive.name, "1.0.0");
-    if (state === null || typeof state !== "object" || state.name !== archive.name || state.version !== "1.0.0" || state.tags === null || typeof state.tags !== "object" || Array.isArray(state.tags) || Object.keys(state.tags).length > 64) throw new Error(`registry state is invalid for ${archive.name}@1.0.0`);
-    if (state.integrity !== archive.registryIntegrity) throw new Error(`registry integrity mismatch for ${archive.name}@1.0.0`);
-    if ((state.tags[tag] ?? null) !== "1.0.0") throw new Error(`registry ${tag} tag mismatch for ${archive.name}`);
-    results.push(Object.freeze({ name: archive.name, version: "1.0.0", registryIntegrity: archive.registryIntegrity, tag }));
+    const state = readState(archive.name, RELEASE_VERSION);
+    if (state === null || typeof state !== "object" || state.name !== archive.name || state.version !== RELEASE_VERSION || state.tags === null || typeof state.tags !== "object" || Array.isArray(state.tags) || Object.keys(state.tags).length > 64) throw new Error(`registry state is invalid for ${archive.name}@${RELEASE_VERSION}`);
+    if (state.integrity !== archive.registryIntegrity) throw new Error(`registry integrity mismatch for ${archive.name}@${RELEASE_VERSION}`);
+    if ((state.tags[tag] ?? null) !== RELEASE_VERSION) throw new Error(`registry ${tag} tag mismatch for ${archive.name}`);
+    results.push(Object.freeze({ name: archive.name, version: RELEASE_VERSION, registryIntegrity: archive.registryIntegrity, tag }));
   }
   return Object.freeze(results);
 }

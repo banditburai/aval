@@ -1,4 +1,13 @@
-export const RELEASE_VERSION = "1.0.0";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+import { parseStableVersion } from "./release-version.mjs";
+
+const releasePolicy = JSON.parse(readFileSync(fileURLToPath(
+  new URL("../../config/release/release-policy.json", import.meta.url)
+), "utf8"));
+
+export const RELEASE_VERSION = parseStableVersion(releasePolicy.releaseVersion).text;
 
 const ROOT_EXPORT = Object.freeze({
   ".": Object.freeze({ types: "./dist/index.d.ts", import: "./dist/index.js" })

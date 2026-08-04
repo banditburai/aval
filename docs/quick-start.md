@@ -1,27 +1,18 @@
 # Quick start
 
-Install the element and compiler at the synchronized 1.0 version:
+Compile an existing project directly through the scoped npm CLI, then install
+the browser runtime in the consuming application:
 
 ```sh
+npx @pixel-point/aval-compiler compile motion.json --out dist/motion
 npm install @pixel-point/aval-element@1.0.0
-npm install --save-dev @pixel-point/aval-compiler@1.0.0
-npx avl init my-motion
-cd my-motion
-npm install
-npm run dev
 ```
 
-Here `npx avl` resolves the `avl` executable from the compiler package
-installed on the preceding line.
-
-Open the printed loopback URL. Browsers can treat HTTP loopback as potentially
-trustworthy, but copying the server's private-LAN address to a phone is not the
-same security context. Use HTTPS through a trusted local certificate or tunnel
-when testing on another device. This is the immediately runnable end-to-end
-path: the generated directory includes source frames, project, exact package
-dependencies, and watch compiler. When integrating the built asset into a
-package-aware web application, register the element once and use ordinary
-markup like this illustrative snippet:
+npx downloads the compiler into npm's cache and runs its sole `avl` binary
+without adding it to the project. Serve the emitted bundle through the
+application's normal package-aware development and production workflow, then
+register the element once and use ordinary markup like this illustrative
+snippet:
 
 ## Required consumer failure handling
 

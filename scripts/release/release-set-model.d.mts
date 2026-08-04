@@ -63,7 +63,7 @@ export interface ReleasePackageSpecification {
   readonly buildInfo?: string;
 }
 
-export const RELEASE_VERSION: "1.0.0";
+export const RELEASE_VERSION: string;
 export const RELEASE_PACKAGE_NAMES: readonly ReleasePackageName[];
 export const RELEASE_PACKAGE_SPECS: readonly ReleasePackageSpecification[];
 export const PRODUCTION_PUBLIC_ENTRIES: readonly ProductionPublicEntryDefinition[];

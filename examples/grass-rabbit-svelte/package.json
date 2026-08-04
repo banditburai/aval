@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@fontsource-variable/inter": "5.2.8",
-    "@pixel-point/aval-svelte": "1.0.0",
+    "@pixel-point/aval-svelte": "1.0.1",
     "svelte": "5.56.8"
   },
   "devDependencies": {

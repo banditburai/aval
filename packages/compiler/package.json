@@ -1,8 +1,13 @@
 {
   "name": "@pixel-point/aval-compiler",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "CLI and compiler for deterministic AVAL assets.",
-  "keywords": ["animation", "compiler", "cli", "motion"],
+  "keywords": [
+    "animation",
+    "compiler",
+    "cli",
+    "motion"
+  ],
   "private": false,
   "type": "module",
   "sideEffects": false,
@@ -15,16 +20,32 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "license": "MIT",
-  "engines": { "node": ">=22.12.0" },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pixel-point/aval.git",
+    "directory": "packages/compiler"
+  },
+  "homepage": "https://github.com/pixel-point/aval",
+  "bugs": {
+    "url": "https://github.com/pixel-point/aval/issues"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node ../../scripts/release/compiler-cli-mode.mjs dist/cli.js",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json && node ../../scripts/release/compiler-cli-mode.mjs dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
-    "@pixel-point/aval-element": "1.0.0",
-    "@pixel-point/aval-format": "1.0.0",
-    "@pixel-point/aval-graph": "1.0.0"
+    "@pixel-point/aval-element": "1.0.1",
+    "@pixel-point/aval-format": "1.0.1",
+    "@pixel-point/aval-graph": "1.0.1"
   }
 }

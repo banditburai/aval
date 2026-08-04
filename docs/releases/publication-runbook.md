@@ -1,5 +1,56 @@
 # Publication runbook
 
+## Operator commands
+
+The synchronized npm workflow publishes exactly six packages:
+`@pixel-point/aval-graph`, `@pixel-point/aval-format`,
+`@pixel-point/aval-element`, `@pixel-point/aval-compiler`,
+`@pixel-point/aval-react`, and `@pixel-point/aval-svelte`. Certification,
+applications, examples, and fixtures are never published.
+
+Start a release by bumping every package and exact internal dependency together:
+
+```sh
+./scripts/release/publish-packages.sh bump patch
+```
+
+`major`, `minor`, or an exact increasing stable version such as `1.2.0` are also
+accepted. Review and commit the version change, then prepare the immutable
+tarballs:
+
+```sh
+./scripts/release/publish-packages.sh prepare
+```
+
+After inspecting the generated `artifacts/<version>/package-inspection.json`,
+publish using an npm login or `NODE_AUTH_TOKEN` authorized for the
+`@pixel-point` organization:
+
+```sh
+./scripts/release/publish-packages.sh publish
+```
+
+In a local interactive terminal, `publish` checks `npm whoami` and automatically
+starts npm's web login when no session exists. Complete the approval in the
+browser; the script then retries authentication and continues. Non-interactive
+CI never opens a browser and requires credentials such as `NODE_AUTH_TOKEN` to
+be configured before the command starts.
+
+The command publishes in dependency order under `next`, verifies the complete
+release, and only then promotes every package to `latest`. Re-running is safe
+when already-published tarball integrity is identical; conflicting immutable
+bytes abort the release.
+
+npm can return `404 Not Found` from its read endpoints briefly after accepting
+a publish or dist-tag mutation. The publisher treats that missing state as
+registry propagation and polls for up to ten minutes for the exact integrity
+and tag. A visible checksum conflict still aborts immediately. If npm remains
+invisible after the polling window, the command reports a propagation timeout;
+rerun the same `publish` command to reconcile the accepted package and continue
+with the remaining package set.
+
+## Certified workflow
+
 Publication uses the already certified tarballs. It never checks out source or
 rebuilds packages.
 

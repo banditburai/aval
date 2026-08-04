@@ -11,7 +11,7 @@
   },
   "sourceProvenance": {
     "provenancePath": "fixtures/compiler/v1/provenance.json",
-    "provenanceSha256": "8ea4b5f0a4820628966be469f5d45495dd5059603f772ea7bd3262f9f848831e"
+    "provenanceSha256": "780b84820e3a0893a363d489f35cc0639105d9623be537fe48061edb0044bc1b"
   },
   "buildReport": {
     "path": "fixtures/certification/v1/build.json",

@@ -11,4 +11,18 @@ describe("publishable package manifests", () => {
     }));
     expect(validateSynchronizedReleaseSet(manifests)).toEqual([]);
   });
+
+  it("carry canonical package-specific repository metadata", async () => {
+    for (const name of PUBLIC_RELEASE_PACKAGES) {
+      const directory = releasePackageDirectory(name);
+      const manifest = JSON.parse(await readFile(`packages/${directory}/package.json`, "utf8"));
+      expect(manifest.repository).toEqual({
+        type: "git",
+        url: "https://github.com/pixel-point/aval.git",
+        directory: `packages/${directory}`
+      });
+      expect(manifest.homepage).toBe("https://github.com/pixel-point/aval");
+      expect(manifest.bugs).toEqual({ url: "https://github.com/pixel-point/aval/issues" });
+    }
+  });
 });

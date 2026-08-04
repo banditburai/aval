@@ -1,6 +1,6 @@
 export interface InspectedTarball {
   readonly name: string;
-  readonly version: "1.0.0";
+  readonly version: string;
   readonly manifest: Readonly<Record<string, unknown>>;
   readonly files: readonly string[];
   readonly fileRecords: readonly Readonly<{ path: string; byteLength: number; mode: number; sha256: string }>[];

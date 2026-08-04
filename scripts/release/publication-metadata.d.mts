@@ -1,6 +1,6 @@
 export interface ApprovedPublicationMetadata {
   readonly schemaVersion: "1.0";
-  readonly releaseVersion: "1.0.0";
+  readonly releaseVersion: string;
   readonly status: "approved";
   readonly reviewId: string;
   readonly reviewerRole: "qualified-publication-metadata-reviewer";

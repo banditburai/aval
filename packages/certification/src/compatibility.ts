@@ -80,6 +80,10 @@ export function validateSynchronizedReleaseSet(manifests: readonly ReleasePackag
     if (byName.has(manifest.name)) failures.push(`${manifest.name}: duplicate manifest`);
     else byName.set(manifest.name, manifest);
   }
+  const releaseVersion = manifests[0]?.version;
+  if (typeof releaseVersion !== "string" || !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(releaseVersion)) {
+    failures.push("release version must be canonical stable SemVer");
+  }
   for (const name of PUBLIC_RELEASE_PACKAGES) {
     const manifest = byName.get(name);
     if (manifest === undefined) {
@@ -87,7 +91,7 @@ export function validateSynchronizedReleaseSet(manifests: readonly ReleasePackag
       continue;
     }
     const contract = PUBLIC_RELEASE_PACKAGE_CONTRACTS[name];
-    if (manifest.version !== "1.0.0") failures.push(`${name}: version must be 1.0.0`);
+    if (manifest.version !== releaseVersion) failures.push(`${name}: version must match synchronized release ${String(releaseVersion)}`);
     if (manifest.private !== false) failures.push(`${name}: private must be explicitly false`);
     if (manifest.type !== "module") failures.push(`${name}: package must be ESM`);
     if (JSON.stringify(manifest.exports) !== JSON.stringify(contract.exports)) failures.push(`${name}: exports must match the reviewed public contract`);
@@ -100,7 +104,7 @@ export function validateSynchronizedReleaseSet(manifests: readonly ReleasePackag
     const expected = [...contract.dependencies].sort();
     const actual = internal.map(([dependency]) => dependency).sort();
     if (JSON.stringify(actual) !== JSON.stringify(expected)) failures.push(`${name}: internal dependencies must be exactly ${expected.join(", ") || "none"}`);
-    for (const [dependency, version] of internal) if (version !== "1.0.0") failures.push(`${name}: internal dependency ${dependency} must be exactly 1.0.0`);
+    for (const [dependency, version] of internal) if (version !== releaseVersion) failures.push(`${name}: internal dependency ${dependency} must be exactly ${String(releaseVersion)}`);
     if (JSON.stringify(manifest.peerDependencies) !== JSON.stringify(contract.peerDependencies)) failures.push(`${name}: peer dependencies must match the reviewed public contract`);
   }
   for (const manifest of manifests) if (!isPublicReleasePackage(manifest.name)) failures.push(`${manifest.name}: not in public release policy`);

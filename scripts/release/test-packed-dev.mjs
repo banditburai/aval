@@ -170,9 +170,9 @@ try {
   await cp(join(project, "motion"), join(project, "dist", "motion"), {
     recursive: true
   });
-  const builtStarter = await readTextTree(join(project, "dist"));
-  assert(builtStarter.includes("aval-player"), "generated starter web build omitted the element");
-  assertNoFilesystemLeak(builtStarter, [root, project]);
+  const builtFixture = await readTextTree(join(project, "dist"));
+  assert(builtFixture.includes("aval-player"), "packed dev fixture web build omitted the element");
+  assertNoFilesystemLeak(builtFixture, [root, project]);
   viteServer = await vitePreview({
     root: project,
     configFile: false,
@@ -203,13 +203,13 @@ try {
   await assertPinnedChromiumCapabilities(starterPage);
   await waitForElementReady(starterPage, "interactiveReady");
   const starterSnapshot = await publicSnapshot(starterPage);
-  assert(starterSnapshot.stateNames.includes("idle"), "generated starter omitted its idle state");
-  assert(starterSnapshot.stateNames.includes("engaged"), "generated starter omitted its engaged state");
+  assert(starterSnapshot.stateNames.includes("idle"), "packed dev fixture omitted its idle state");
+  assert(starterSnapshot.stateNames.includes("engaged"), "packed dev fixture omitted its engaged state");
   assert(
     hasStaticBundleSources(starterSnapshot),
-    "generated starter did not install the ordered codec bundle sources"
+    "packed dev fixture did not install the ordered codec bundle sources"
   );
-  assert(starterSnapshot.videoCount === 0, "generated starter created a video element");
+  assert(starterSnapshot.videoCount === 0, "packed dev fixture created a video element");
   await starterPage.locator("#favorite").hover();
   await starterPage.waitForFunction(() =>
     document.querySelector("aval-player")?.requestedState === "engaged",

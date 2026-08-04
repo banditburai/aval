@@ -11,7 +11,7 @@ import { prepareImmutableReleaseSetOutput } from "./immutable-release-output.mjs
 import { createPublishManifest } from "./publish-manifest.mjs";
 import { validateApprovedPublicationMetadata } from "./publication-metadata.mjs";
 import { buildFreshPublicDistributions } from "./fresh-public-build.mjs";
-import { computeReleaseSetDigest, loadVerifiedReleaseSet, releasePackageDirectory, releasePackageSpecification, releaseSetSummary, validateReleasePackageManifests, validateReleasePolicy } from "./release-set.mjs";
+import { computeReleaseSetDigest, loadVerifiedReleaseSet, RELEASE_VERSION, releasePackageDirectory, releasePackageSpecification, releaseSetSummary, validateReleasePackageManifests, validateReleasePolicy } from "./release-set.mjs";
 import { assertTestOnlyArchiveOutput, testOnlyPublicationMetadata } from "./test-only-archive-proof.mjs";
 import { RELEASE_WORKER_ENTRIES } from "./worker-entry-contract.mjs";
 
@@ -19,17 +19,21 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const policy = JSON.parse(await readFile(resolve(root, "config/release/release-policy.json"), "utf8"));
 validateReleasePolicy(policy);
 const testProof = process.argv.includes("--test-only-packed-proof");
+const sourceMetadata = process.argv.includes("--source-metadata");
+if (testProof && sourceMetadata) throw new Error("test-only and source publication metadata modes are mutually exclusive");
 const outFlag = process.argv.indexOf("--out");
-const requestedOutput = resolve(root, outFlag < 0 ? "artifacts/1.0.0/packages" : process.argv[outFlag + 1]);
+const requestedOutput = resolve(root, outFlag < 0 ? `artifacts/${RELEASE_VERSION}/packages` : process.argv[outFlag + 1]);
 const indexFlag = process.argv.indexOf("--index");
-const requestedIndex = resolve(root, indexFlag < 0 ? "artifacts/1.0.0/package-index.json" : process.argv[indexFlag + 1]);
+const requestedIndex = resolve(root, indexFlag < 0 ? `artifacts/${RELEASE_VERSION}/package-index.json` : process.argv[indexFlag + 1]);
 if (testProof) {
   await assertTestOnlyArchiveOutput(requestedOutput, root);
   await assertTestOnlyArchiveOutput(requestedIndex, root);
 } else if (process.argv.some((value) => value.startsWith("--test-only"))) throw new Error("unknown test-only release packaging mode");
 const publicationMetadata = testProof
   ? testOnlyPublicationMetadata()
-  : validateApprovedPublicationMetadata(JSON.parse(await readFile(resolve(root, "config/release/publication-metadata.json"), "utf8")));
+  : sourceMetadata
+    ? undefined
+    : validateApprovedPublicationMetadata(JSON.parse(await readFile(resolve(root, "config/release/publication-metadata.json"), "utf8")));
 const immutableOutput = await prepareImmutableReleaseSetOutput({ output: requestedOutput, index: requestedIndex });
 const output = immutableOutput.stagedOutput;
 const packageIndex = immutableOutput.stagedIndex;
@@ -85,7 +89,7 @@ try {
   } finally {
     await rm(work, { recursive: true, force: true });
   }
-  const indexDocument = { schemaVersion: "1.0", releaseVersion: "1.0.0", releaseSetDigest: computeReleaseSetDigest(packed), packages: reports };
+  const indexDocument = { schemaVersion: "1.0", releaseVersion: RELEASE_VERSION, releaseSetDigest: computeReleaseSetDigest(packed), packages: reports };
   await writeFile(packageIndex, `${JSON.stringify(indexDocument, null, 2)}\n`, { flag: "wx" });
   const reopened = await loadVerifiedReleaseSet({ directory: output, policy, packageIndex: indexDocument });
   if (reopened.releaseSetDigest !== indexDocument.releaseSetDigest) throw new Error("reopened release-set digest changed before publication");

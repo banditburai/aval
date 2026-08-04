@@ -72,6 +72,9 @@
     "release:create-release-manifest": "node scripts/release/finalize-release.mjs",
     "release:verify-manifest": "node scripts/release/verify-manifest.mjs",
     "release:publish-dry-run": "vitest run --config vitest.m9.config.ts packages/certification/test/publication-ledger.test.ts tests/package/registry-client.test.ts tests/package/registry-reconciler.test.ts tests/package/publication-support.test.ts",
+    "release:bump": "sh scripts/release/publish-packages.sh bump",
+    "release:prepare-npm": "sh scripts/release/publish-packages.sh prepare",
+    "release:publish-npm": "sh scripts/release/publish-packages.sh publish",
     "release:rollback-drill": "vitest run --config vitest.m9.config.ts packages/certification/test/publication-ledger.test.ts tests/package/registry-client.test.ts tests/security/workflow-hardening.test.ts",
     "typecheck": "npm run typecheck --workspaces --if-present && npm run typecheck:tests",
     "typecheck:tests": "tsc -p tsconfig.tests.json --noEmit"

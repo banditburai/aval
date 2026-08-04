@@ -1,8 +1,13 @@
 {
   "name": "@pixel-point/aval-element",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Progressive web component for interactive AVAL assets.",
-  "keywords": ["animation", "web-component", "accessibility", "motion"],
+  "keywords": [
+    "animation",
+    "web-component",
+    "accessibility",
+    "motion"
+  ],
   "private": false,
   "type": "module",
   "sideEffects": [
@@ -22,12 +27,28 @@
       "import": "./dist/adapter.js"
     }
   },
-  "files": ["dist", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "license": "MIT",
-  "engines": { "node": ">=22.12.0" },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pixel-point/aval.git",
+    "directory": "packages/element"
+  },
+  "homepage": "https://github.com/pixel-point/aval",
+  "bugs": {
+    "url": "https://github.com/pixel-point/aval/issues"
+  },
   "dependencies": {
-    "@pixel-point/aval-format": "1.0.0",
-    "@pixel-point/aval-graph": "1.0.0"
+    "@pixel-point/aval-format": "1.0.1",
+    "@pixel-point/aval-graph": "1.0.1"
   },
   "scripts": {
     "build": "node ../../scripts/release/build-element-package.mjs",

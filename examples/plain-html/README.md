@@ -22,5 +22,5 @@ In production, use each `data-codec` family and optional `integrity` from
 `orbit/build.json.sourceMarkup`. AVAL applies its fixed family priority, so DOM
 order does not change codec selection.
 
-For an immediately runnable generated asset and browser workflow, use
-`avl init` and `npm run dev` in the generated starter.
+Create a project JSON and compile its bundle with
+`npx @pixel-point/aval-compiler compile motion.json --out orbit`.

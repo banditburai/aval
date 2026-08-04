@@ -5,12 +5,12 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-import { RELEASE_PACKAGE_NAMES, releaseArchiveFilename } from "./release-set-model.mjs";
+import { RELEASE_PACKAGE_NAMES, RELEASE_VERSION, releaseArchiveFilename } from "./release-set-model.mjs";
 import { packReleaseConsumerDependencies, verifyInstalledPeerVersions } from "./local-package-archives.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const directoryIndex = process.argv.indexOf("--packages");
-const packageDirectory = resolve(root, directoryIndex < 0 ? "artifacts/1.0.0/packages" : process.argv[directoryIndex + 1]);
+const packageDirectory = resolve(root, directoryIndex < 0 ? `artifacts/${RELEASE_VERSION}/packages` : process.argv[directoryIndex + 1]);
 const archiveNames = (await readdir(packageDirectory)).filter((name) => name.endsWith(".tgz")).sort();
 const expectedArchiveNames = RELEASE_PACKAGE_NAMES.map((name) => releaseArchiveFilename(name)).sort();
 if (JSON.stringify(archiveNames) !== JSON.stringify(expectedArchiveNames)) throw new Error(`expected the exact public package archives, found ${JSON.stringify(archiveNames)}`);

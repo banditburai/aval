@@ -1,6 +1,6 @@
 import { isIP } from "node:net";
 
-import { RELEASE_PACKAGE_NAMES, releasePackageDirectory } from "./release-set-model.mjs";
+import { RELEASE_PACKAGE_NAMES, RELEASE_VERSION, releasePackageDirectory } from "./release-set-model.mjs";
 
 const KEYS = Object.freeze([
   "schemaVersion", "releaseVersion", "status", "reviewId", "reviewerRole",
@@ -34,7 +34,7 @@ function isCanonicalTimestamp(value) {
 
 export function validatePublicationMetadataShape(input) {
   if (input === null || typeof input !== "object" || Array.isArray(input) || Object.keys(input).sort().join(",") !== [...KEYS].sort().join(",")) throw new Error("publication metadata fields are invalid");
-  if (input.schemaVersion !== "1.0" || input.releaseVersion !== "1.0.0" || (input.status !== "pending" && input.status !== "approved")) throw new Error("publication metadata identity is invalid");
+  if (input.schemaVersion !== "1.0" || input.releaseVersion !== RELEASE_VERSION || (input.status !== "pending" && input.status !== "approved")) throw new Error("publication metadata identity is invalid");
   return input;
 }
 

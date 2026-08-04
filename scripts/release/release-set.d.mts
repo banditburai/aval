@@ -1,5 +1,5 @@
 export interface ReleasePolicy {
-  readonly releaseVersion: "1.0.0";
+  readonly releaseVersion: string;
   readonly publicPackages: readonly string[];
 }
 
@@ -17,7 +17,7 @@ export type { ProductionPublicEntryDefinition, ReleaseBuildConfig, ReleaseBuildS
 
 export interface InspectedReleasePackage {
   readonly name: string;
-  readonly version: "1.0.0";
+  readonly version: string;
   readonly filename: string;
   readonly path: string;
   readonly bytes: Buffer;
@@ -35,7 +35,7 @@ export function validateReleasePackageManifests<T extends object>(manifests: rea
 export function computeReleaseSetDigest(packages: readonly InspectedReleasePackage[]): string;
 export function loadVerifiedReleaseSet(input: { directory: string; policy: ReleasePolicy; packageIndex?: unknown }): Promise<Readonly<{
   schemaVersion: "1.0";
-  releaseVersion: "1.0.0";
+  releaseVersion: string;
   order: readonly string[];
   packages: readonly InspectedReleasePackage[];
   manifests: readonly Readonly<Record<string, unknown>>[];

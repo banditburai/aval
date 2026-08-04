@@ -3,11 +3,12 @@ import { join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 
 import { validateApprovedPublicationMetadata } from "./publication-metadata.mjs";
+import { RELEASE_VERSION } from "./release-set-model.mjs";
 
 export function testOnlyPublicationMetadata() {
   return validateApprovedPublicationMetadata({
     schemaVersion: "1.0",
-    releaseVersion: "1.0.0",
+    releaseVersion: RELEASE_VERSION,
     status: "approved",
     reviewId: "test-only-metadata-proof-001",
     reviewerRole: "qualified-publication-metadata-reviewer",

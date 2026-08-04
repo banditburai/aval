@@ -6,5 +6,5 @@ placeholder and is not included here. Supply a bundle with the authored
 `favorite/build.json.sourceMarkup` family declarations and optional per-file
 integrity values before running `npm install` and `npm run build`.
 
-For an immediately runnable generated idle/engaged asset and browser workflow,
-use `avl init` and the checked starter instead.
+Create the idle/engaged project JSON and compile it with
+`npx @pixel-point/aval-compiler compile motion.json --out favorite`.

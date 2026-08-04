@@ -11,10 +11,10 @@
     "bytes": 2218,
     "sha256": "4dc74d58d0c8a28020458dda65389dd88eda4224a874aed90aecfecb319386e6"
   },
-  "sourceGenerator": "@pixel-point/aval-compiler init 1.0",
+  "sourceGenerator": "repository fixture 1.0",
   "sourceProvenance": {
     "provenancePath": "fixtures/starter/v1-idle-hover/provenance.json",
-    "provenanceSha256": "35fa0a2e1f55fef63f01a56bf549a2befe876af0ee9d65da77bf62f1526f1f77"
+    "provenanceSha256": "06da2a7dd2010e082e9ca6e35f6b872d2f13576e72466e22003a9882e3c42b7c"
   },
   "frames": [
     {

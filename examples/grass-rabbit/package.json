@@ -10,11 +10,11 @@
     "dev": "vite --host 0.0.0.0"
   },
   "dependencies": {
-    "@pixel-point/aval-element": "1.0.0"
+    "@pixel-point/aval-element": "1.0.1"
   },
   "devDependencies": {
     "@fontsource-variable/inter": "^5.2.8",
-    "@pixel-point/aval-compiler": "1.0.0",
+    "@pixel-point/aval-compiler": "1.0.1",
     "@tailwindcss/vite": "^4.3.2",
     "tailwindcss": "^4.3.2",
     "vite": "8.1.4"

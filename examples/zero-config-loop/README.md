@@ -6,5 +6,5 @@ paths), then copy the compiler's `build.json.sourceMarkup` family declarations
 and optional per-file integrity values before running `npm install` and
 `npm run build`.
 
-For an immediately runnable generated asset and browser workflow, use
-`avl init` and the checked starter instead.
+Create a project JSON and compile its bundle with
+`npx @pixel-point/aval-compiler compile motion.json --out orbit`.

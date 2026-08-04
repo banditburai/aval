@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0",
-  "releaseVersion": "1.0.0",
+  "releaseVersion": "1.0.1",
   "releaseStage": "technical-preview",
   "wireFormatVersion": "1.1",
   "projectSchemaVersion": "1.0",
@@ -12,7 +12,9 @@
     "@pixel-point/aval-react",
     "@pixel-point/aval-svelte"
   ],
-  "registry": { "url": "https://registry.npmjs.org/" },
+  "registry": {
+    "url": "https://registry.npmjs.org/"
+  },
   "toolchain": {
     "minimumNode": "22.12.0",
     "minimumNpm": "10.9.0",
@@ -26,17 +28,37 @@
   "trustedPublishing": {
     "minimumNode": "22.14.0",
     "minimumNpm": "11.5.1",
-    "oidcOperations": ["publish", "stage-publish"],
+    "oidcOperations": [
+      "publish",
+      "stage-publish"
+    ],
     "distTagPromotionRequiresSeparateShortLivedAuthorization": true
   },
   "ci": {
-    "operatingSystems": ["ubuntu-24.04", "macos-15", "windows-2025"],
-    "playwrightProjects": ["chromium", "firefox", "webkit"],
+    "operatingSystems": [
+      "ubuntu-24.04",
+      "macos-15",
+      "windows-2025"
+    ],
+    "playwrightProjects": [
+      "chromium",
+      "firefox",
+      "webkit"
+    ],
     "playwrightBrowserManifestSha256": "ee39bc924bc3d1bd895626c2910f1292d109bbfeeb5abd113acb45e1951cc942",
     "playwrightBrowsers": {
-      "chromium": { "revision": "1228", "engineVersion": "149.0.7827.55" },
-      "firefox": { "revision": "1532", "engineVersion": "151.0" },
-      "webkit": { "revision": "2311", "engineVersion": "26.5" }
+      "chromium": {
+        "revision": "1228",
+        "engineVersion": "149.0.7827.55"
+      },
+      "firefox": {
+        "revision": "1532",
+        "engineVersion": "151.0"
+      },
+      "webkit": {
+        "revision": "2311",
+        "engineVersion": "26.5"
+      }
     },
     "referenceRepetitions": 3,
     "jobTimeoutMinutes": 45,
@@ -46,52 +68,102 @@
     "browserCertificationPolicy": "config/release/browser-certification-policy.json",
     "platformGroups": {
       "macos-26-apple-silicon": {
-        "slotIds": ["macos-26-4-safari-26-4", "macos-26-4-chrome-150", "macos-26-4-chrome-149", "macos-26-4-chrome-148", "macos-26-4-chrome-127", "macos-26-4-firefox-152", "macos-26-4-firefox-151", "macos-26-4-firefox-150", "macos-26-4-firefox-130", "macos-26-4-brave-1-92-141", "macos-26-4-brave-1-67-134"],
+        "slotIds": [
+          "macos-26-4-safari-26-4",
+          "macos-26-4-chrome-150",
+          "macos-26-4-chrome-149",
+          "macos-26-4-chrome-148",
+          "macos-26-4-chrome-127",
+          "macos-26-4-firefox-152",
+          "macos-26-4-firefox-151",
+          "macos-26-4-firefox-150",
+          "macos-26-4-firefox-130",
+          "macos-26-4-brave-1-92-141",
+          "macos-26-4-brave-1-67-134"
+        ],
         "deviceClass": "Apple-Silicon-M1-or-later",
         "virtualization": "none"
       },
       "macos-15-apple-silicon": {
-        "slotIds": ["macos-15-4-safari-18-4", "macos-15-4-chrome-150", "macos-15-4-chrome-149", "macos-15-4-chrome-148", "macos-15-4-chrome-127", "macos-15-4-firefox-152", "macos-15-4-firefox-151", "macos-15-4-firefox-150", "macos-15-4-firefox-130", "macos-15-4-brave-1-92-141", "macos-15-4-brave-1-67-134"],
+        "slotIds": [
+          "macos-15-4-safari-18-4",
+          "macos-15-4-chrome-150",
+          "macos-15-4-chrome-149",
+          "macos-15-4-chrome-148",
+          "macos-15-4-chrome-127",
+          "macos-15-4-firefox-152",
+          "macos-15-4-firefox-151",
+          "macos-15-4-firefox-150",
+          "macos-15-4-firefox-130",
+          "macos-15-4-brave-1-92-141",
+          "macos-15-4-brave-1-67-134"
+        ],
         "deviceClass": "Apple-Silicon-M1-or-later",
         "virtualization": "none"
       },
       "windows-11-uhd620-or-better": {
-        "slotIds": ["windows-11-chrome-150", "windows-11-chrome-149", "windows-11-chrome-148", "windows-11-chrome-127", "windows-11-firefox-152", "windows-11-firefox-151", "windows-11-firefox-150", "windows-11-firefox-130"],
+        "slotIds": [
+          "windows-11-chrome-150",
+          "windows-11-chrome-149",
+          "windows-11-chrome-148",
+          "windows-11-chrome-127",
+          "windows-11-firefox-152",
+          "windows-11-firefox-151",
+          "windows-11-firefox-150",
+          "windows-11-firefox-130"
+        ],
         "deviceClass": "UHD620-or-better",
         "virtualization": "none"
       },
       "windows-server-2025-brave": {
-        "slotIds": ["windows-server-2025-brave-1-92-141", "windows-server-2025-brave-1-67-134"],
+        "slotIds": [
+          "windows-server-2025-brave-1-92-141",
+          "windows-server-2025-brave-1-67-134"
+        ],
         "deviceClass": "managed-windows-x64",
         "virtualization": "none"
       },
       "ios-26-iphone-real-device": {
-        "slotIds": ["ios-26-5-iphone-17-safari", "ios-26-4-iphone-17-safari", "ios-26-0-iphone-17-safari"],
+        "slotIds": [
+          "ios-26-5-iphone-17-safari",
+          "ios-26-4-iphone-17-safari",
+          "ios-26-0-iphone-17-safari"
+        ],
         "deviceClass": "iPhone-real-device",
         "virtualization": "none"
       },
       "ios-18-iphone-real-device": {
-        "slotIds": ["ios-18-6-iphone-16-safari"],
+        "slotIds": [
+          "ios-18-6-iphone-16-safari"
+        ],
         "deviceClass": "iPhone-real-device",
         "virtualization": "none"
       },
       "android-17-pixel-real-device": {
-        "slotIds": ["android-17-pixel-9-chrome"],
+        "slotIds": [
+          "android-17-pixel-9-chrome"
+        ],
         "deviceClass": "Google-Pixel-9-real-device",
         "virtualization": "none"
       },
       "android-16-pixel-real-device": {
-        "slotIds": ["android-16-pixel-9-chrome"],
+        "slotIds": [
+          "android-16-pixel-9-chrome"
+        ],
         "deviceClass": "Google-Pixel-9-real-device",
         "virtualization": "none"
       },
       "android-15-samsung-midrange-real-device": {
-        "slotIds": ["android-15-galaxy-s25-chrome"],
+        "slotIds": [
+          "android-15-galaxy-s25-chrome"
+        ],
         "deviceClass": "Samsung-Galaxy-S25-real-device",
         "virtualization": "none"
       }
     },
-    "requiredRefreshMilliHz": [60000],
+    "requiredRefreshMilliHz": [
+      60000
+    ],
     "conditionalRefreshMilliHz": 120000,
     "requiredScenarioIds": [
       "loop-1000",
@@ -128,12 +200,26 @@
     "extractors": {
       "aval-display-extractor": "1.0.0"
     },
-    "operatorRoles": ["qualified-display-capture-operator"],
-    "reviewerIds": ["independent-display-reviewer-a", "independent-display-reviewer-b"]
+    "operatorRoles": [
+      "qualified-display-capture-operator"
+    ],
+    "reviewerIds": [
+      "independent-display-reviewer-a",
+      "independent-display-reviewer-b"
+    ]
   },
   "security": {
     "maximumProductionSeverity": "moderate",
-    "allowedLicenses": ["0BSD", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0", "Unicode-3.0"]
+    "allowedLicenses": [
+      "0BSD",
+      "Apache-2.0",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "ISC",
+      "MIT",
+      "MPL-2.0",
+      "Unicode-3.0"
+    ]
   },
   "rollback": {
     "previousKnownGood": "none",

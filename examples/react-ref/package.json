@@ -19,7 +19,7 @@
     "vite": "8.1.4"
   },
   "peerDependencies": {
-    "@pixel-point/aval-react": "1.0.0"
+    "@pixel-point/aval-react": "1.0.1"
   },
   "peerDependenciesMeta": {
     "@pixel-point/aval-react": {

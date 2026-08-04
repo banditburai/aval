@@ -1,8 +1,12 @@
 {
   "name": "@pixel-point/aval-graph",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Deterministic state graph for AVAL assets.",
-  "keywords": ["animation", "state-machine", "motion"],
+  "keywords": [
+    "animation",
+    "state-machine",
+    "motion"
+  ],
   "private": false,
   "type": "module",
   "sideEffects": false,
@@ -12,9 +16,25 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "license": "MIT",
-  "engines": { "node": ">=22.12.0" },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pixel-point/aval.git",
+    "directory": "packages/graph"
+  },
+  "homepage": "https://github.com/pixel-point/aval",
+  "bugs": {
+    "url": "https://github.com/pixel-point/aval/issues"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
