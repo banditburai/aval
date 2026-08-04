@@ -96,6 +96,13 @@ element, compiler, React, then Svelte. Existing exact versions are accepted only
 when registry integrity matches the prepared archive; a conflicting immutable
 version aborts the release.
 
+npm may accept an authenticated publish before the new packument and dist-tags
+are visible from its read endpoints. Post-mutation verification therefore polls
+for bounded convergence instead of treating a temporary missing version as an
+integrity conflict. A visible non-null integrity mismatch still fails
+immediately. Exhausting the convergence window fails with a distinct
+not-yet-visible error so the operator can safely rerun the idempotent command.
+
 No `latest` tag changes until all six exact versions and `next` tags verify. If
 publication stops partway through, the already-published immutable versions may
 remain, but users following `latest` do not see a partial release. Re-running the
