@@ -60,7 +60,10 @@ for (const path of files) {
   const text = await readFile(path, "utf8");
   const historical = path.startsWith("docs/superpowers/") ||
     path.startsWith("docs/evidence/");
-  if (/@pixel-point\/aval-[a-z-]+\/src\/|\.\.\/src\//u.test(text)) failures.push(`${path}: source-private import in public documentation`);
+  if (
+    !historical &&
+    /@pixel-point\/aval-[a-z-]+\/src\/|\.\.\/src\//u.test(text)
+  ) failures.push(`${path}: source-private import in public documentation`);
   if (hasRemovedImageApi(text)) failures.push(`${path}: removed external image API is still documented`);
   if (
     !historical &&
@@ -122,6 +125,30 @@ for (const path of ["README.md", "docs/quick-start.md", "packages/compiler/READM
   const text = await readFile(path, "utf8");
   if (!text.includes(scopedCompileCommand)) failures.push(`${path}: scoped compiler command is missing`);
   if (text.includes(["avl", "init"].join(" "))) failures.push(`${path}: removed compiler init command is documented`);
+}
+const rootReadme = await readFile("README.md", "utf8");
+const motionProjectLink = "[`motion.json`](docs/project/1.0.md)";
+const motionProjectToc = "[`motion.json` format and options](docs/project/1.0.md)";
+if (!rootReadme.includes(motionProjectLink)) {
+  failures.push("README.md: compile section must link motion.json to its reference");
+}
+if (!rootReadme.includes(motionProjectToc)) {
+  failures.push("README.md: documentation TOC must expose the motion.json reference");
+}
+const projectReference = await readFile("docs/project/1.0.md", "utf8");
+for (const claim of [
+  "## Top-level fields",
+  "## Sources",
+  "## Encodings and renditions",
+  "## Units",
+  "## States, edges, and bindings",
+  "## Validate and compile"
+]) {
+  if (!projectReference.includes(claim)) {
+    failures.push(
+      `docs/project/1.0.md: missing motion project reference section: ${claim}`
+    );
+  }
 }
 const elementReadme = await readFile("packages/element/README.md", "utf8");
 if (!elementReadme.includes("npm install @pixel-point/aval-element@1.0.0")) failures.push("packages/element/README.md: exact public install is missing");

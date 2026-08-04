@@ -11,6 +11,9 @@ Run the scoped CLI directly without adding the compiler to the project:
 npx @pixel-point/aval-compiler compile motion.json --out dist/motion
 ```
 
+See the complete [`motion.json` format and options](../../docs/project/1.0.md)
+for source types, codecs, compression controls, renditions, and graph fields.
+
 ## Compile output
 
 For a project containing all four codecs, the output is:

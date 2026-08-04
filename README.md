@@ -30,8 +30,63 @@ browser-integration example below demonstrates this required boundary.
 
 ## Compile an AVAL project
 
-Given an existing `motion.json`, compile it directly. No initialization or
-local compiler installation is required:
+Create a [`motion.json`](docs/project/1.0.md) beside your source media. This
+minimal example expects `motion.mov` to be a progressive, square-pixel,
+unrotated 1920×1080 video at a constant 30 fps with at least 120 frames. It
+compiles the first four seconds as one looping VP9 AVAL:
+
+<!-- BEGIN MOTION PROJECT EXAMPLE -->
+```json
+{
+  "projectVersion": "1.0",
+  "alpha": "auto",
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "fit": "contain",
+    "pixelAspect": [1, 1],
+    "colorSpace": "srgb"
+  },
+  "frameRate": { "numerator": 30, "denominator": 1 },
+  "sources": [
+    {
+      "id": "motion",
+      "type": "video",
+      "path": "motion.mov",
+      "timing": { "mode": "exact" }
+    }
+  ],
+  "encodings": [
+    {
+      "codec": "vp9",
+      "deadline": "best",
+      "cpuUsed": 0,
+      "threads": 8,
+      "renditions": [
+        { "id": "motion.1x", "width": 1920, "height": "auto", "crf": 40 }
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "idle.body",
+      "kind": "body",
+      "source": "motion",
+      "range": [0, 120],
+      "playback": "loop",
+      "ports": []
+    }
+  ],
+  "initialState": "idle",
+  "states": [{ "id": "idle", "bodyUnit": "idle.body" }],
+  "edges": [],
+  "bindings": []
+}
+```
+<!-- END MOTION PROJECT EXAMPLE -->
+
+Compile it directly. No initialization or local compiler installation is
+required:
 
 ```sh
 npx @pixel-point/aval-compiler compile motion.json --out dist/motion
@@ -39,16 +94,18 @@ npx @pixel-point/aval-compiler compile motion.json --out dist/motion
 
 Here npx fetches the scoped compiler into npm's cache and automatically runs its
 sole `avl` executable; it does not add the compiler to the current project. The
-compiler publishes a directory rather than a single output file:
+compiler publishes a directory rather than a single output file. This example
+produces:
 
 ```text
 dist/motion/
-  av1.avl
   vp9.avl
-  h265.avl
-  h264.avl
   build.json
 ```
+
+See the [`motion.json` format and options](docs/project/1.0.md) for all source
+types, codecs, compression controls, renditions, units, states, transitions,
+and bindings. A project can request AV1, VP9, H.265, and H.264 together.
 
 ## Browser integration
 
@@ -188,7 +245,7 @@ reveals alternate application content.
 - [Svelte integration](docs/element/svelte.md)
 - [Failure handling and reduced motion](docs/element/fallback-and-reduced-motion.md)
 - [Compiler](docs/compiler.md)
-- [Project schema 1.0](docs/project/1.0.md)
+- [`motion.json` format and options](docs/project/1.0.md)
 - [Wire format 1.1](docs/format/1.1.md)
 - [Preparing video and authoring states](docs/compiler/authoring-video-and-states.md)
 - [Network and integrity](docs/network-and-integrity.md)

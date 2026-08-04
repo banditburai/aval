@@ -57,5 +57,5 @@ tools. Codec patent/licensing obligations are not bundled or cleared by this
 project. Use a reviewed local toolchain and obtain legal review for production
 distribution.
 
-See [project 1.0](project/1.0.md) and [wire format 1.1](format/1.1.md) for the
-exact authoring and payload contracts.
+See the [`motion.json` format and options](project/1.0.md) and
+[wire format 1.1](format/1.1.md) for the exact authoring and payload contracts.
