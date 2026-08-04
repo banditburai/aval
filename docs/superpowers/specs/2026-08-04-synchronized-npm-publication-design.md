@@ -102,9 +102,15 @@ remain, but users following `latest` do not see a partial release. Re-running th
 same command reconciles exact matching versions and continues. Promotion updates
 all six `latest` tags only after complete verification.
 
-The script never stores npm credentials. It relies on the operator's npm login
-or `NODE_AUTH_TOKEN`, confirms the authenticated identity, and uses public access
-for scoped packages.
+The script never handles credential values itself. It first checks the
+operator's npm identity. If no session exists and the command is attached to an
+interactive terminal, it runs npm's web authentication flow for the
+`@pixel-point` scope, inherits the terminal so npm can open and complete browser
+approval, then retries the identity check. A non-interactive process never
+attempts browser login and fails with instructions to provide a valid npm token
+or run `npm login` beforehand. After authentication, the publisher confirms the
+identity is an `@pixel-point` organization member and uses public access for
+scoped packages.
 
 ## Verification
 
